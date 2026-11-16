@@ -1,6 +1,6 @@
 """Booking model for Trekking Management Application V2."""
 from datetime import datetime
-from sqlalchemy.orm import validates
+from sqlalchemy.orm import validates, synonym
 from sqlalchemy import Index, text
 from backend.app.extensions import db
 
@@ -50,6 +50,7 @@ class Booking(db.Model):
         nullable=False,
         default="Booked"
     )
+    status = synonym("booking_status")
     payment_status = db.Column(
         db.String(20),
         nullable=True,
@@ -88,6 +89,39 @@ class Booking(db.Model):
                 f"Invalid payment status: {value}. Allowed values: {', '.join(sorted(self.ALLOWED_PAYMENT_STATUSES))}"
             )
         return value
+
+    def to_dict(self) -> dict:
+        """Sanitized dictionary representation of Booking."""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "trek_id": self.trek_id,
+            "user": {
+                "id": self.user.id,
+                "full_name": self.user.full_name,
+                "email": self.user.email,
+                "contact_number": self.user.contact_number,
+                "phone_number": self.user.contact_number,
+            } if self.user else None,
+            "trek": {
+                "id": self.trek.id,
+                "name": self.trek.trek_name,
+                "trek_name": self.trek.trek_name,
+                "location": self.trek.location,
+                "difficulty": self.trek.difficulty,
+                "duration_days": self.trek.duration_days,
+            } if self.trek else None,
+            "user_name": self.user.full_name if self.user else None,
+            "user_email": self.user.email if self.user else None,
+            "trek_name": self.trek.trek_name if self.trek else None,
+            "trek_location": self.trek.location if self.trek else None,
+            "booking_date": self.booking_date.isoformat() if self.booking_date else None,
+            "booking_status": self.booking_status,
+            "status": self.booking_status,
+            "payment_status": self.payment_status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
 
     def __repr__(self) -> str:
         return f"<Booking id={self.id} user_id={self.user_id} trek_id={self.trek_id} status='{self.booking_status}'>"

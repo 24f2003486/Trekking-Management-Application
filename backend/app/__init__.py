@@ -91,9 +91,24 @@ def create_app(config_name: str = None) -> Flask:
         )
 
     # Register blueprints
-    from backend.app.routes import auth_bp, admin_bp, staff_bp, trekker_bp
+    from backend.app.routes import (
+        auth_bp,
+        admin_bp,
+        admin_treks_bp,
+        admin_staff_bp,
+        admin_users_bp,
+        admin_bookings_bp,
+        admin_reports_bp,
+        staff_bp,
+        trekker_bp,
+    )
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(admin_treks_bp)
+    app.register_blueprint(admin_staff_bp)
+    app.register_blueprint(admin_users_bp)
+    app.register_blueprint(admin_bookings_bp)
+    app.register_blueprint(admin_reports_bp)
     app.register_blueprint(staff_bp)
     app.register_blueprint(trekker_bp)
 

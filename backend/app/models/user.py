@@ -2,7 +2,7 @@
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import event
-from sqlalchemy.orm import validates
+from sqlalchemy.orm import validates, synonym
 from backend.app.extensions import db
 
 
@@ -30,6 +30,7 @@ class User(db.Model):
     email = db.Column(db.String(120), nullable=False, unique=True, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     contact_number = db.Column(db.String(20), nullable=True)
+    phone_number = synonym("contact_number")
     role = db.Column(db.String(20), nullable=False)
     status = db.Column(db.String(20), nullable=False, default="Active")
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -115,16 +116,26 @@ class User(db.Model):
 
     def to_dict(self) -> dict:
         """Sanitized dictionary representation of user (no password_hash)."""
-        return {
+        data = {
             "id": self.id,
             "full_name": self.full_name,
             "email": self.email,
             "role": self.role,
             "status": self.status,
             "contact_number": self.contact_number,
+            "phone_number": self.contact_number,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+        if self.role == "Trek Staff":
+            data["staff_profile"] = self.staff_profile.to_dict() if self.staff_profile else None
+            data["specialization"] = self.staff_profile.specialization if self.staff_profile else None
+            data["experience_years"] = self.staff_profile.experience_years if self.staff_profile else 0
+            data["emergency_contact"] = self.staff_profile.emergency_contact if self.staff_profile else None
+            data["assigned_treks_count"] = self.assigned_treks.count() if hasattr(self, "assigned_treks") and self.assigned_treks else 0
+        elif self.role == "Trekker":
+            data["bookings_count"] = self.bookings.count() if hasattr(self, "bookings") and self.bookings else 0
+        return data
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email='{self.email}' role='{self.role}' status='{self.status}'>"

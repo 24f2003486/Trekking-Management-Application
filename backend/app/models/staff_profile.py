@@ -71,6 +71,18 @@ class StaffProfile(db.Model):
                 f"Staff profile can only belong to a user with role 'Trek Staff'. Provided user role: '{user.role}'."
             )
 
+    def to_dict(self) -> dict:
+        """Sanitized dictionary representation of StaffProfile."""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "specialization": self.specialization,
+            "experience_years": self.experience_years,
+            "emergency_contact": self.emergency_contact,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
     def __repr__(self) -> str:
         return f"<StaffProfile id={self.id} user_id={self.user_id} experience_years={self.experience_years}>"
 

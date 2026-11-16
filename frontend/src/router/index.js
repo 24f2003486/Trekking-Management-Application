@@ -4,6 +4,15 @@ import { authService } from '../services/auth'
 import LoginView from '../views/LoginView.vue'
 import RegisterView from '../views/RegisterView.vue'
 import AdminDashboardView from '../views/AdminDashboardView.vue'
+import ManageTreksView from '../views/ManageTreksView.vue'
+import CreateTrekView from '../views/CreateTrekView.vue'
+import EditTrekView from '../views/EditTrekView.vue'
+import ManageStaffView from '../views/ManageStaffView.vue'
+import CreateStaffView from '../views/CreateStaffView.vue'
+import EditStaffView from '../views/EditStaffView.vue'
+import ManageUsersView from '../views/ManageUsersView.vue'
+import ManageBookingsView from '../views/ManageBookingsView.vue'
+import ReportsView from '../views/ReportsView.vue'
 import StaffDashboardView from '../views/StaffDashboardView.vue'
 import TrekkerDashboardView from '../views/TrekkerDashboardView.vue'
 import UnauthorizedView from '../views/UnauthorizedView.vue'
@@ -35,6 +44,60 @@ const routes = [
     path: '/admin/dashboard',
     name: 'AdminDashboard',
     component: AdminDashboardView,
+    meta: { requiresAuth: true, allowedRoles: ['Admin'] }
+  },
+  {
+    path: '/admin/treks',
+    name: 'ManageTreks',
+    component: ManageTreksView,
+    meta: { requiresAuth: true, allowedRoles: ['Admin'] }
+  },
+  {
+    path: '/admin/treks/create',
+    name: 'CreateTrek',
+    component: CreateTrekView,
+    meta: { requiresAuth: true, allowedRoles: ['Admin'] }
+  },
+  {
+    path: '/admin/treks/:id/edit',
+    name: 'EditTrek',
+    component: EditTrekView,
+    meta: { requiresAuth: true, allowedRoles: ['Admin'] }
+  },
+  {
+    path: '/admin/staff',
+    name: 'ManageStaff',
+    component: ManageStaffView,
+    meta: { requiresAuth: true, allowedRoles: ['Admin'] }
+  },
+  {
+    path: '/admin/staff/create',
+    name: 'CreateStaff',
+    component: CreateStaffView,
+    meta: { requiresAuth: true, allowedRoles: ['Admin'] }
+  },
+  {
+    path: '/admin/staff/:id/edit',
+    name: 'EditStaff',
+    component: EditStaffView,
+    meta: { requiresAuth: true, allowedRoles: ['Admin'] }
+  },
+  {
+    path: '/admin/users',
+    name: 'ManageUsers',
+    component: ManageUsersView,
+    meta: { requiresAuth: true, allowedRoles: ['Admin'] }
+  },
+  {
+    path: '/admin/bookings',
+    name: 'ManageBookings',
+    component: ManageBookingsView,
+    meta: { requiresAuth: true, allowedRoles: ['Admin'] }
+  },
+  {
+    path: '/admin/reports',
+    name: 'Reports',
+    component: ReportsView,
     meta: { requiresAuth: true, allowedRoles: ['Admin'] }
   },
   {

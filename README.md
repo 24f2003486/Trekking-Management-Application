@@ -2,7 +2,7 @@
 
 **Course:** Modern Application Development II (MAD-II)  
 **Institution:** Indian Institute of Technology Madras (IIT Madras)  
-**Project Status:** Milestone 2 Completed (Authentication & Role-Based Access Control)
+**Project Status:** Milestone 3 Completed (Admin Dashboard and Management)
 
 ---
 
@@ -13,7 +13,7 @@ The **Trekking Management Application V2 (TMA)** is a multi-user, web-based plat
 By integrating a responsive frontend with a scalable RESTful backend, TMA aims to provide end-to-end expedition scheduling, participant management, and real-time activity tracking.
 
 > **Project Status Disclaimer:**  
-> This repository currently includes **Milestone 0 (Project Setup)**, **Milestone 1 (Database Models & Schema)**, and **Milestone 2 (Authentication & Role-Based Access Control)**. Core expedition creation, booking flows, Redis caching, and Celery background workers are scheduled for subsequent milestones and are **not yet implemented**.
+> This repository currently includes **Milestone 0 (Project Setup)**, **Milestone 1 (Database Models & Schema)**, **Milestone 2 (Authentication & Role-Based Access Control)**, and **Milestone 3 (Admin Dashboard and Management)**. Trekker booking self-service workflows, staff execution portals, Redis caching, and Celery background workers belong to subsequent milestones.
 
 ---
 
@@ -106,12 +106,23 @@ Development is organized in incremental milestones:
   - Vue 3 + Vite frontend with Bootstrap 5 styling and Vue Router
   - Client-side navigation guards with automated role-based redirects (`/admin/dashboard`, `/staff/dashboard`, `/trekker/dashboard`)
   - 46 comprehensive automated unit tests covering models, auth, RBAC, and logout
-- [ ] **Milestone 3: Booking Engine & Staff Portal**
-  - Trekker booking workflow with capacity enforcement
-  - Staff assignment dashboard and participant tracking
-- [ ] **Milestone 4: Redis Caching & Celery Background Tasks**
+- [x] **Milestone 3: Admin Dashboard and Management (Completed)**
+  - Strict Admin authorization enforcing `role == 'Admin'` and `status == 'Active'` across all management endpoints
+  - Real database aggregate overview endpoint (`GET /api/admin/dashboard`) returning live counts
+  - Complete Trek Management REST APIs (`GET/POST /api/admin/treks`, `GET/PUT/DELETE /api/admin/treks/<id>`)
+  - Safe trek deletion strictly preventing data loss if historical bookings exist (HTTP 400 with descriptive guidance)
+  - Staff Assignment API (`PUT /api/admin/treks/<id>/assign-staff`) and active staff dropdown endpoint (`GET /api/admin/staff/available`)
+  - Staff Management REST APIs (`GET/POST /api/admin/staff`, `GET/PUT /api/admin/staff/<id>`, `PATCH /api/admin/staff/<id>/status`) with atomic User + StaffProfile creation in transaction
+  - Trekker User Management REST APIs (`GET /api/admin/users`, `GET/PUT /api/admin/users/<id>`, `PATCH /api/admin/users/<id>/status`) with role mutation forbidden
+  - Read-Only Booking Management & History REST APIs (`GET /api/admin/bookings`, `GET /api/admin/bookings/<id>`)
+  - Database-derived Reporting & Statistics REST API (`GET /api/admin/reports`)
+  - 10 responsive Vue 3 + Bootstrap 5 Admin views with reusable components (`AdminSidebar`, `StatCard`, `Pagination`, `ConfirmationModal`)
+  - 80 automated unit tests passing across 8 test suites with isolated in-memory SQLite databases
+- [ ] **Milestone 4: Trek Staff & Trekker Portals, Redis Caching & Celery Background Tasks**
+  - Trekker booking & cancellation workflow
+  - Trek Staff checkpoint progress & roster management
   - Redis integration for catalog caching
-  - Celery asynchronous task pipeline (email alerts & monthly reports)
+  - Celery asynchronous notification pipeline (email alerts & monthly reports)
   - Celery Beat scheduled jobs
 - [ ] **Milestone 5: Verification, Testing & Final Documentation**
   - End-to-end integration testing and bug fixes
@@ -260,7 +271,68 @@ Backend enforcement is implemented via `@role_required(*allowed_roles)`:
 
 ---
 
-## 10. Repository Structure
+## 10. Milestone 3: Admin Dashboard & Management Specification
+
+### 10.1 Administrative Authorization & Security
+All administrative endpoints are protected under the URL prefix `/api/admin/*` and require:
+1. Valid JWT Bearer token in the `Authorization` header.
+2. Verified claims checked against the SQLite database: `user.role == "Admin"` and `user.status == "Active"`.
+3. Unauthenticated requests receive HTTP 401; non-admin users (Trek Staff, Trekkers) or deactivated/blacklisted admin accounts strictly receive HTTP 403.
+
+### 10.2 REST API Specification
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/admin/dashboard` | Admin | Real-time database metrics: total treks, users, staff, bookings, open/pending/completed treks, active/blacklisted users |
+| `GET` | `/api/admin/treks` | Admin | Paginated list of treks with search by name/ID, filters by difficulty, status, and location |
+| `GET` | `/api/admin/treks/<id>` | Admin | Retrieve complete details of a single trek route |
+| `POST` | `/api/admin/treks` | Admin | Create a new trek route with capacity, difficulty, dates, and optional assigned staff |
+| `PUT` | `/api/admin/treks/<id>` | Admin | Update existing trek details, dates, capacity, or assigned leader |
+| `DELETE` | `/api/admin/treks/<id>` | Admin | Safe deletion: permanently removes trek only if 0 bookings exist; returns HTTP 400 if booking history exists |
+| `PUT` | `/api/admin/treks/<id>/assign-staff` | Admin | Assign, reassign, or unassign an active Trek Staff user to an expedition |
+| `GET` | `/api/admin/staff` | Admin | Paginated list of Trek Staff accounts with search, status filters, and assigned treks count |
+| `GET` | `/api/admin/staff/<id>` | Admin | Retrieve staff profile details, contact info, qualifications, and assigned treks |
+| `POST` | `/api/admin/staff` | Admin | Atomically provision a new Trek Staff account and associated `StaffProfile` in a database transaction |
+| `PUT` | `/api/admin/staff/<id>` | Admin | Update staff user details, contact number, specialization, experience, and emergency contact |
+| `PATCH` | `/api/admin/staff/<id>/status` | Admin | Update staff account status (`Active`, `Inactive`, `Blacklisted`) |
+| `GET` | `/api/admin/staff/available` | Admin | Retrieve active Trek Staff members for trek creation/assignment dropdowns |
+| `GET` | `/api/admin/users` | Admin | Paginated list of registered Trekkers with search by name/email/ID and status filters |
+| `GET` | `/api/admin/users/<id>` | Admin | Retrieve single Trekker profile details |
+| `PUT` | `/api/admin/users/<id>` | Admin | Update permitted profile fields (`full_name`, `contact_number`); strictly rejects role modification |
+| `PATCH` | `/api/admin/users/<id>/status` | Admin | Update Trekker status (`Active`, `Inactive`, `Blacklisted`); blocks modification of Admin accounts |
+| `GET` | `/api/admin/bookings` | Admin | Read-only audit log of participant reservations with status filters and search |
+| `GET` | `/api/admin/bookings/<id>` | Admin | Retrieve single booking details with associated user and trek metadata |
+| `GET` | `/api/admin/reports` | Admin | Live database-aggregated reporting metrics: difficulty & status distributions, popular treks, monthly activity |
+
+### 10.3 Safe Deletion & Data Integrity
+To preserve complete financial and operational audit trails:
+- **Trek Deletion:** An expedition cannot be hard-deleted if any booking records (active, cancelled, or completed) exist in SQLite. The API returns HTTP 400 with actionable advice to set the trek status to `'Closed'` or `'Completed'` instead.
+- **Atomic Staff Provisioning:** Both `User` and `StaffProfile` records are committed inside a unified database transaction. If profile creation fails, the user is rolled back, preventing orphaned accounts.
+- **Role Escalation Prevention:** Role mutation through user management endpoints is strictly forbidden (HTTP 400). Admin accounts cannot be deactivated via general user routes.
+
+### 10.4 Frontend Admin Interface (Vue 3 + Bootstrap 5)
+The administrative frontend is implemented as a cohesive Single Page Application with 10 dedicated views and reusable modular components:
+
+1. **`AdminDashboardView.vue` (`/admin/dashboard`):** Real-time metric cards, operational distributions, health indicators, and quick-action links.
+2. **`ManageTreksView.vue` (`/admin/treks`):** Comprehensive trek catalog table, search toolbar, difficulty & status filters, pagination, and safe deletion modal.
+3. **`CreateTrekView.vue` (`/admin/treks/create`):** Full trek route creation form with available staff dropdown selector and date validation.
+4. **`EditTrekView.vue` (`/admin/treks/:id/edit`):** Expedition configuration form supporting date adjustments and staff allocation.
+5. **`ManageStaffView.vue` (`/admin/staff`):** Staff guide directory displaying specializations, experience, assigned treks count, and one-click status toggle actions.
+6. **`CreateStaffView.vue` (`/admin/staff/create`):** Staff account provisioning form with initial credentials and field specialization details.
+7. **`EditStaffView.vue` (`/admin/staff/:id/edit`):** Staff profile modification form with real-time assigned trek roster sidebar.
+8. **`ManageUsersView.vue` (`/admin/users`):** Trekker directory with search, booking counts, inline profile editing modal, and account status management.
+9. **`ManageBookingsView.vue` (`/admin/bookings`):** Read-only booking audit table with status filtering and detailed reservation modal dialog.
+10. **`ReportsView.vue` (`/admin/reports`):** Live analytics dashboard displaying difficulty breakdowns, status distributions, popular trek rankings, and monthly activity progress bars.
+
+**Reusable Components:**
+- **`AdminSidebar.vue`:** Sleek sidebar navigation with active route highlights.
+- **`StatCard.vue`:** Configurable metric card with colored icons and subtitles.
+- **`Pagination.vue`:** Reusable pagination controls with previous/next and dynamic page number buttons.
+- **`ConfirmationModal.vue`:** Modal dialog for action confirmation.
+
+---
+
+## 11. Repository Structure
 
 ```text
 trekking-management-app/
@@ -279,15 +351,20 @@ trekking-management-app/
 │   │   ├── extensions.py          # SQLAlchemy, JWTManager, CORS instances
 │   │   ├── models/
 │   │   │   ├── __init__.py        # Models export
-│   │   │   ├── user.py            # User model
-│   │   │   ├── trek.py            # Trek model
-│   │   │   ├── booking.py         # Booking model
-│   │   │   ├── staff_profile.py   # StaffProfile model
+│   │   │   ├── user.py            # User model with role validation & serialization
+│   │   │   ├── trek.py            # Trek model with capacity & date validation
+│   │   │   ├── booking.py         # Booking model with partial unique index
+│   │   │   ├── staff_profile.py   # StaffProfile model for Trek Staff users
 │   │   │   └── token_blocklist.py # TokenBlocklist model for revoked JWTs
 │   │   ├── routes/
-│   │   │   ├── __init__.py        # Blueprints export
+│   │   │   ├── __init__.py        # Blueprint registrations
 │   │   │   ├── auth.py            # /api/auth routes (register, login, me, logout)
-│   │   │   ├── admin.py           # /api/admin routes (dashboard)
+│   │   │   ├── admin.py           # /api/admin/dashboard overview route
+│   │   │   ├── admin_treks.py     # /api/admin/treks CRUD & staff assignment routes
+│   │   │   ├── admin_staff.py     # /api/admin/staff CRUD & status management routes
+│   │   │   ├── admin_users.py     # /api/admin/users trekker management routes
+│   │   │   ├── admin_bookings.py  # /api/admin/bookings read-only audit routes
+│   │   │   ├── admin_reports.py   # /api/admin/reports aggregate analytics routes
 │   │   │   ├── staff.py           # /api/staff routes (dashboard)
 │   │   │   └── trekker.py         # /api/trekker routes (dashboard)
 │   │   └── utils/
@@ -298,10 +375,18 @@ trekking-management-app/
 │   │   └── create_admin.py        # Programmatic admin account provisioning
 │   └── tests/
 │       ├── __init__.py
-│       ├── test_models.py         # 20 automated tests for schema & constraints
-│       ├── test_auth.py           # 15 automated tests for registration, login & profile
-│       ├── test_rbac.py           # 9 automated tests for RBAC & token expiration
-│       └── test_logout.py         # 2 automated tests for logout & token blocklist
+│       ├── test_models.py             # 20 automated tests for schema & constraints
+│       ├── test_auth.py               # 15 automated tests for registration, login & profile
+│       ├── test_rbac.py               # 9 automated tests for RBAC & token expiration
+│       ├── test_logout.py             # 2 automated tests for logout & token blocklist
+│       ├── test_admin_dashboard.py    # 3 automated tests for admin dashboard statistics
+│       ├── test_admin_treks.py        # 7 automated tests for trek CRUD & safe deletion
+│       ├── test_admin_staff.py        # 6 automated tests for staff creation, hashing & status
+│       ├── test_admin_users.py        # 6 automated tests for trekker management & escalation guards
+│       ├── test_admin_assignments.py  # 3 automated tests for staff allocation & reassignments
+│       ├── test_admin_bookings.py     # 3 automated tests for read-only booking history
+│       ├── test_admin_reports.py      # 3 automated tests for database aggregates & rankings
+│       └── test_admin_auth.py         # 3 automated tests for 401/403 authorization enforcement
 └── frontend/
     ├── package.json               # Vue 3, Vue Router, Bootstrap, Axios
     ├── vite.config.js             # Vite config with backend API proxy
@@ -315,19 +400,32 @@ trekking-management-app/
         │   ├── api.js             # Axios instance with JWT request/response interceptors
         │   └── auth.js            # Centralized authentication state management
         ├── components/
-        │   └── Navbar.vue         # Responsive Bootstrap navigation bar
+        │   ├── Navbar.vue             # Responsive Bootstrap navigation bar
+        │   ├── AdminSidebar.vue       # Administrative navigation sidebar
+        │   ├── StatCard.vue           # Reusable metric card component
+        │   ├── Pagination.vue         # Reusable table pagination component
+        │   └── ConfirmationModal.vue  # Reusable action confirmation dialog
         └── views/
-            ├── LoginView.vue      # Sign-in page
-            ├── RegisterView.vue   # Trekker registration page
-            ├── AdminDashboardView.vue    # Admin portal placeholder
-            ├── StaffDashboardView.vue    # Trek Staff portal placeholder
-            ├── TrekkerDashboardView.vue  # Trekker portal placeholder
-            └── UnauthorizedView.vue      # HTTP 403 Access Denied view
+            ├── LoginView.vue          # Sign-in page
+            ├── RegisterView.vue       # Trekker registration page
+            ├── AdminDashboardView.vue # Admin overview portal
+            ├── ManageTreksView.vue    # Trek catalog management view
+            ├── CreateTrekView.vue     # New trek route creation form
+            ├── EditTrekView.vue       # Trek route modification form
+            ├── ManageStaffView.vue    # Trek staff directory & status view
+            ├── CreateStaffView.vue    # Staff provisioning form
+            ├── EditStaffView.vue      # Staff profile editing form
+            ├── ManageUsersView.vue    # Trekker account management view
+            ├── ManageBookingsView.vue # Read-only booking audit view
+            ├── ReportsView.vue        # Administrative analytics view
+            ├── StaffDashboardView.vue # Trek Staff portal placeholder
+            ├── TrekkerDashboardView.vue # Trekker portal placeholder
+            └── UnauthorizedView.vue   # HTTP 403 Access Denied view
 ```
 
 ---
 
-## 11. Instructions to Run and Verify (Windows PowerShell)
+## 12. Instructions to Run and Verify (Windows PowerShell)
 
 ### Step 1: Backend Setup & Automated Tests
 
@@ -338,10 +436,10 @@ cd "D:\iitm'\26t3 sep\MAD2\Trekking-Management-Application"
 # Activate virtual environment
 .\.venv\Scripts\Activate.ps1
 
-# Install backend dependencies
+# Install backend dependencies (if needed)
 pip install -r backend/requirements.txt
 
-# Run all 46 automated unit tests
+# Run all 80 automated unit tests (Milestone 1, 2, and 3)
 python -m unittest discover backend/tests -v
 ```
 
@@ -364,7 +462,7 @@ python backend/scripts/create_admin.py
 python backend/run.py
 ```
 
-### Step 4: Run the Vue Frontend Server
+### Step 4: Build and Run the Vue Frontend
 
 In a second PowerShell terminal:
 
@@ -372,17 +470,17 @@ In a second PowerShell terminal:
 # Navigate to frontend directory
 cd "D:\iitm'\26t3 sep\MAD2\Trekking-Management-Application\frontend"
 
-# Install frontend dependencies (if not already installed)
-npm install
+# Build production bundle (confirms zero compile errors)
+npm run build
 
 # Start Vite development server on port 5173
 npm run dev
 ```
 
-Open your browser at `http://localhost:5173` to interact with the application.
+Open your browser at `http://localhost:5173` and log in with your Admin credentials to access the Admin Management Suite.
 
 ---
 
-## 12. License & Academic Integrity
+## 13. License & Academic Integrity
 
 This project is submitted as coursework for the **Modern Application Development II (MAD-II)** course at **IIT Madras**. All work conforms to academic integrity guidelines established by the program.

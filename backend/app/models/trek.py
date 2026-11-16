@@ -1,7 +1,7 @@
 """Trek model for Trekking Management Application V2."""
 from datetime import datetime, date
 from sqlalchemy import event
-from sqlalchemy.orm import validates, object_session
+from sqlalchemy.orm import validates, object_session, synonym
 from backend.app.extensions import db
 
 
@@ -38,6 +38,7 @@ class Trek(db.Model):
     
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     trek_name = db.Column(db.String(100), nullable=False)
+    name = synonym("trek_name")
     location = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
     difficulty = db.Column(db.String(20), nullable=False)
@@ -142,6 +143,28 @@ class Trek(db.Model):
             raise ValueError(
                 f"Assigned staff must have the 'Trek Staff' role. Assigned user has role: '{staff.role}'."
             )
+
+    def to_dict(self) -> dict:
+        """Sanitized dictionary representation of Trek."""
+        assigned_name = self.assigned_staff.full_name if self.assigned_staff else None
+        return {
+            "id": self.id,
+            "name": self.trek_name,
+            "trek_name": self.trek_name,
+            "location": self.location,
+            "description": self.description,
+            "difficulty": self.difficulty,
+            "duration_days": self.duration_days,
+            "available_slots": self.available_slots,
+            "assigned_staff_id": self.assigned_staff_id,
+            "assigned_staff_name": assigned_name,
+            "status": self.status,
+            "start_date": self.start_date.isoformat() if self.start_date else None,
+            "end_date": self.end_date.isoformat() if self.end_date else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "bookings_count": self.bookings.count() if hasattr(self, "bookings") and self.bookings else 0
+        }
 
     def __repr__(self) -> str:
         return f"<Trek id={self.id} trek_name='{self.trek_name}' difficulty='{self.difficulty}' status='{self.status}'>"
