@@ -251,12 +251,25 @@ def update_trek(trek_id):
         except (TypeError, ValueError):
             errors["available_slots"] = "Available slots must be a non-negative integer."
 
+    is_already_completed = (trek.status == "Completed" or trek.operational_progress == "Completed")
+
     if "status" in data:
         stat = data["status"].strip()
-        if stat not in Trek.ALLOWED_STATUSES:
+        if is_already_completed and stat != "Completed":
+            errors["status"] = "Completed treks cannot be reopened."
+        elif stat not in Trek.ALLOWED_STATUSES:
             errors["status"] = f"Status must be one of: {', '.join(sorted(Trek.ALLOWED_STATUSES))}."
         else:
             trek.status = stat
+
+    if "operational_progress" in data or "progress" in data:
+        prog = (data.get("operational_progress") or data.get("progress") or "").strip()
+        if is_already_completed and prog != "Completed":
+            errors["operational_progress"] = "Completed treks cannot be reverted to earlier progress stages."
+        elif prog not in Trek.ALLOWED_PROGRESS_STAGES:
+            errors["operational_progress"] = f"Operational progress must be one of: {', '.join(sorted(Trek.ALLOWED_PROGRESS_STAGES))}."
+        else:
+            trek.operational_progress = prog
 
     # Handle dates
     new_start_date = trek.start_date
@@ -300,6 +313,19 @@ def update_trek(trek_id):
 
     if errors:
         return error_response("Validation failed.", errors=errors, status_code=400)
+
+    # Automatic completion consistency: if trek became Completed, close bookings and complete active reservations
+    if trek.status == "Completed" or trek.operational_progress == "Completed":
+        if trek.status == "Completed":
+            trek.operational_progress = "Completed"
+        elif trek.operational_progress == "Completed" and trek.status in ("Open", "Pending", "Approved"):
+            trek.status = "Closed"
+        active_bookings = Booking.query.filter_by(
+            trek_id=trek.id,
+            booking_status="Booked"
+        ).all()
+        for b in active_bookings:
+            b.booking_status = "Completed"
 
     try:
         db.session.commit()

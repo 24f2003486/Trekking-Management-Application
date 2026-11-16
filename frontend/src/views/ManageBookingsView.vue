@@ -20,7 +20,7 @@
                 v-model="filters.search"
                 type="text"
                 class="form-control form-control-sm"
-                placeholder="Search by booking ID, trekker name or trek..."
+                placeholder="Search by booking ID, trekker name/ID, or trek name/ID..."
               />
             </div>
             <div class="col-md-4">
@@ -59,6 +59,7 @@
                   <th scope="col" class="ps-3">Booking ID</th>
                   <th scope="col">Trekker</th>
                   <th scope="col">Trek Expedition</th>
+                  <th scope="col">Trek Progress</th>
                   <th scope="col">Booking Date</th>
                   <th scope="col">Booking Status</th>
                   <th scope="col">Payment Status</th>
@@ -75,6 +76,12 @@
                   <td>
                     <div class="fw-semibold">{{ b.trek_name || b.trek?.trek_name || b.trek?.name || 'N/A' }}</div>
                     <small class="text-muted">{{ b.trek_location || b.trek?.location || '-' }}</small>
+                  </td>
+                  <td>
+                    <span class="badge" :class="getTrekProgressBadge(b.trek_operational_progress || b.trek?.operational_progress)">
+                      {{ b.trek_operational_progress || b.trek?.operational_progress || b.trek?.progress || 'Not Started' }}
+                    </span>
+                    <small class="d-block text-muted">{{ b.trek_status || b.trek?.status || 'Open' }}</small>
                   </td>
                   <td>{{ formatDate(b.booking_date) }}</td>
                   <td>
@@ -128,6 +135,10 @@
                   <h6 class="fw-bold mb-2 text-primary">Trek Expedition</h6>
                   <div><strong>Trek:</strong> {{ selectedBooking.trek_name || selectedBooking.trek?.trek_name || selectedBooking.trek?.name }}</div>
                   <div><strong>Location:</strong> {{ selectedBooking.trek_location || selectedBooking.trek?.location }}</div>
+                  <div><strong>Dates:</strong> {{ selectedBooking.trek_start_date || selectedBooking.trek?.start_date || '-' }} to {{ selectedBooking.trek_end_date || selectedBooking.trek?.end_date || '-' }}</div>
+                  <div><strong>Trek Availability:</strong> <span class="badge bg-secondary">{{ selectedBooking.trek_status || selectedBooking.trek?.status || 'Open' }}</span></div>
+                  <div><strong>Operational Progress:</strong> <span class="badge" :class="getTrekProgressBadge(selectedBooking.trek_operational_progress || selectedBooking.trek?.operational_progress)">{{ selectedBooking.trek_operational_progress || selectedBooking.trek?.operational_progress || 'Not Started' }}</span></div>
+                  <div><strong>Guide:</strong> {{ selectedBooking.trek?.assigned_staff_name || 'Unassigned' }}</div>
                 </div>
               </div>
 
@@ -239,6 +250,16 @@ const getBookingStatusBadge = (status) => {
     case 'Booked': return 'bg-success'
     case 'Completed': return 'bg-primary'
     case 'Cancelled': return 'bg-danger'
+    default: return 'bg-secondary'
+  }
+}
+
+const getTrekProgressBadge = (progress) => {
+  switch (progress) {
+    case 'Not Started': return 'bg-secondary'
+    case 'Started': return 'bg-info text-dark'
+    case 'Ongoing': return 'bg-primary'
+    case 'Completed': return 'bg-success'
     default: return 'bg-secondary'
   }
 }

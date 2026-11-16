@@ -29,10 +29,16 @@ def list_bookings():
             Trek.trek_name.ilike(f"%{search}%")
         )
         if search.isdigit():
-            search_filter = or_(search_filter, Booking.id == int(search))
+            val = int(search)
+            search_filter = or_(
+                search_filter,
+                Booking.id == val,
+                Trek.id == val,
+                User.id == val
+            )
         query = query.filter(search_filter)
 
-    if status:
+    if status and status.lower() != "all":
         query = query.filter(Booking.booking_status == status)
 
     query = query.order_by(Booking.booking_date.desc())

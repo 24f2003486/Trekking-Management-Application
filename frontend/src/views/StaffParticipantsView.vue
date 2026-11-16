@@ -42,21 +42,28 @@
 
       <!-- Summary Stat Cards -->
       <div class="row g-3 mb-4">
-        <div class="col-sm-4">
+        <div class="col-sm-6 col-lg-3">
           <div class="card border-0 shadow-sm p-3 bg-white rounded-3">
             <div class="text-muted small text-uppercase fw-semibold">Total Registrations</div>
             <div class="fs-3 fw-bold text-dark">{{ summary.total }}</div>
             <small class="text-muted">All booking records</small>
           </div>
         </div>
-        <div class="col-sm-4">
+        <div class="col-sm-6 col-lg-3">
           <div class="card border-0 shadow-sm p-3 bg-white rounded-3">
             <div class="text-muted small text-uppercase fw-semibold">Active Confirmed</div>
             <div class="fs-3 fw-bold text-success">{{ summary.active }}</div>
             <small class="text-muted">Trekkers confirmed on roster</small>
           </div>
         </div>
-        <div class="col-sm-4">
+        <div class="col-sm-6 col-lg-3">
+          <div class="card border-0 shadow-sm p-3 bg-white rounded-3">
+            <div class="text-muted small text-uppercase fw-semibold">Completed</div>
+            <div class="fs-3 fw-bold text-primary">{{ summary.completed || 0 }}</div>
+            <small class="text-muted">Completed expeditions</small>
+          </div>
+        </div>
+        <div class="col-sm-6 col-lg-3">
           <div class="card border-0 shadow-sm p-3 bg-white rounded-3">
             <div class="text-muted small text-uppercase fw-semibold">Cancelled</div>
             <div class="fs-3 fw-bold text-secondary">{{ summary.cancelled }}</div>
@@ -85,6 +92,7 @@
               <select v-model="filters.status" class="form-select" @change="handleSearch">
                 <option value="">All Participant Records</option>
                 <option value="Booked">Confirmed / Active Only</option>
+                <option value="Completed">Completed Only</option>
                 <option value="Cancelled">Cancelled Only</option>
               </select>
             </div>
@@ -143,9 +151,9 @@
                   <td>
                     <span
                       class="badge"
-                      :class="item.booking_status === 'Booked' ? 'bg-success' : 'bg-secondary'"
+                      :class="getParticipantStatusBadgeClass(item.booking_status)"
                     >
-                      {{ item.booking_status === 'Booked' ? 'Confirmed Active' : 'Cancelled' }}
+                      {{ getParticipantStatusLabel(item.booking_status) }}
                     </span>
                   </td>
                   <td>
@@ -249,6 +257,24 @@ const resetFilters = () => {
 const handlePageChange = (newPage) => {
   filters.page = newPage
   fetchParticipants()
+}
+
+const getParticipantStatusBadgeClass = (status) => {
+  switch (status) {
+    case 'Booked': return 'bg-success'
+    case 'Completed': return 'bg-primary'
+    case 'Cancelled': return 'bg-secondary'
+    default: return 'bg-light text-dark border'
+  }
+}
+
+const getParticipantStatusLabel = (status) => {
+  switch (status) {
+    case 'Booked': return 'Confirmed Active'
+    case 'Completed': return 'Completed'
+    case 'Cancelled': return 'Cancelled'
+    default: return status
+  }
 }
 
 onMounted(() => {

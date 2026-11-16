@@ -309,9 +309,16 @@ def update_trek_progress(trek_id):
 
     trek.operational_progress = new_progress
 
-    # When trek is Completed, automatically close booking status if open
-    if new_progress == "Completed" and trek.status == "Open":
-        trek.status = "Closed"
+    # When trek is Completed, automatically close booking status and transition active bookings
+    if new_progress == "Completed":
+        if trek.status in ("Open", "Pending", "Approved"):
+            trek.status = "Closed"
+        active_bookings = Booking.query.filter_by(
+            trek_id=trek.id,
+            booking_status="Booked"
+        ).all()
+        for b in active_bookings:
+            b.booking_status = "Completed"
 
     db.session.commit()
 
@@ -344,6 +351,7 @@ def get_trek_participants(trek_id):
     total_count = base_query.count()
     active_count = base_query.filter(Booking.booking_status == "Booked").count()
     cancelled_count = base_query.filter(Booking.booking_status == "Cancelled").count()
+    completed_count = base_query.filter(Booking.booking_status == "Completed").count()
 
     query = base_query
     if status_filter and status_filter.lower() != "all":
@@ -395,10 +403,12 @@ def get_trek_participants(trek_id):
                 "total": total_count,
                 "active": active_count,
                 "cancelled": cancelled_count,
+                "completed": completed_count,
             },
             "total_participants": total_count,
             "active_count": active_count,
             "cancelled_count": cancelled_count,
+            "completed_count": completed_count,
             "pagination": {
                 "page": paginated.page,
                 "per_page": paginated.per_page,

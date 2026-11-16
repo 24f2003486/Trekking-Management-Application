@@ -20,6 +20,11 @@
       </div>
 
       <!-- Feedback Alerts -->
+      <div v-if="successMessage" class="alert alert-success alert-dismissible fade show" role="alert">
+        {{ successMessage }}
+        <button type="button" class="btn-close" @click="successMessage = ''"></button>
+      </div>
+
       <div v-if="errorMessage" class="alert alert-danger alert-dismissible fade show" role="alert">
         {{ errorMessage }}
         <button type="button" class="btn-close" @click="errorMessage = ''"></button>
@@ -171,6 +176,17 @@
                     >
                       Info
                     </button>
+                    <button
+                      v-if="b.booking_status === 'Booked' && (b.trek_operational_progress !== 'Completed' && b.trek?.operational_progress !== 'Completed')"
+                      type="button"
+                      class="btn btn-outline-danger"
+                      @click="confirmCancel(b)"
+                      :disabled="cancellingId === b.id"
+                      title="Cancel Reservation"
+                    >
+                      <span v-if="cancellingId === b.id" class="spinner-border spinner-border-sm" role="status"></span>
+                      <span v-else>Cancel</span>
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -226,14 +242,34 @@
                       {{ selectedBooking.trek_operational_progress || selectedBooking.trek?.operational_progress || 'Not Started' }}
                     </span>
                   </div>
+                  <div class="col-6 mt-2">
+                    <span class="text-muted d-block">Guide / Assigned Staff:</span>
+                    <span class="fw-semibold">{{ selectedBooking.trek?.assigned_staff_name || 'Unassigned' }}</span>
+                  </div>
+                  <div class="col-6 mt-2">
+                    <span class="text-muted d-block">Trek Status:</span>
+                    <span class="badge bg-secondary">{{ selectedBooking.trek_status || selectedBooking.trek?.status || 'Unknown' }}</span>
+                  </div>
                 </div>
               </div>
 
-              <div class="d-flex justify-content-end gap-2">
-                <button type="button" class="btn btn-secondary btn-sm" @click="selectedBooking = null">Close</button>
-                <router-link :to="`/trekker/treks/${selectedBooking.trek_id}`" class="btn btn-primary btn-sm">
-                  Full Trek Page
-                </router-link>
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <button
+                    v-if="selectedBooking.booking_status === 'Booked' && (selectedBooking.trek_operational_progress !== 'Completed' && selectedBooking.trek?.operational_progress !== 'Completed')"
+                    type="button"
+                    class="btn btn-outline-danger btn-sm"
+                    @click="confirmCancel(selectedBooking); selectedBooking = null;"
+                  >
+                    Cancel This Booking
+                  </button>
+                </div>
+                <div class="d-flex gap-2">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="selectedBooking = null">Close</button>
+                  <router-link :to="`/trekker/treks/${selectedBooking.trek_id}`" class="btn btn-primary btn-sm">
+                    Full Trek Page
+                  </router-link>
+                </div>
               </div>
             </div>
           </div>
@@ -252,10 +288,31 @@ import Pagination from '../components/Pagination.vue'
 
 const loading = ref(true)
 const errorMessage = ref('')
+const successMessage = ref('')
+const cancellingId = ref(null)
 const bookings = ref([])
 const currentStatus = ref('')
 const pagination = ref({ page: 1, pages: 1, total: 0, has_prev: false, has_next: false })
 const selectedBooking = ref(null)
+
+const confirmCancel = async (booking) => {
+  const trekTitle = booking.trek_name || booking.trek?.trek_name || 'this expedition'
+  if (!window.confirm(`Are you sure you want to cancel your reservation for "${trekTitle}"? Your slot will be released for other trekkers.`)) {
+    return
+  }
+  cancellingId.value = booking.id
+  errorMessage.value = ''
+  successMessage.value = ''
+  try {
+    const res = await api.post(`/api/trekker/bookings/${booking.id}/cancel`)
+    successMessage.value = res.data?.message || 'Booking reservation cancelled successfully.'
+    await fetchBookings()
+  } catch (err) {
+    errorMessage.value = err.response?.data?.message || 'Failed to cancel reservation.'
+  } finally {
+    cancellingId.value = null
+  }
+}
 
 const setStatusFilter = (status) => {
   currentStatus.value = status

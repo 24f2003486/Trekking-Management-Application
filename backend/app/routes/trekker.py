@@ -42,9 +42,11 @@ def serialize_trekker_trek(trek, current_user_id=None):
     return d
 
 
-def serialize_trekker_booking(booking):
+def serialize_trekker_booking(booking, trek=None):
     """Serialize booking details for trekker history views."""
-    trek = booking.trek
+    t = trek if trek is not None else booking.trek
+    is_completed = booking.booking_status == "Completed"
+    trek_is_completed = (t.status == "Completed" or t.operational_progress == "Completed") if t else False
     return {
         "id": booking.id,
         "booking_id": booking.id,
@@ -54,28 +56,32 @@ def serialize_trekker_booking(booking):
         "payment_status": booking.payment_status or "Pending",
         "created_at": booking.created_at.isoformat() if booking.created_at else None,
         "trek_id": booking.trek_id,
+        "is_completed": is_completed,
+        "trek_is_completed": trek_is_completed,
+        "is_cancellable": booking.booking_status == "Booked" and not trek_is_completed,
         "trek": {
-            "id": trek.id,
-            "name": trek.trek_name,
-            "trek_name": trek.trek_name,
-            "location": trek.location,
-            "difficulty": trek.difficulty,
-            "duration_days": trek.duration_days,
-            "start_date": trek.start_date.isoformat() if trek.start_date else None,
-            "end_date": trek.end_date.isoformat() if trek.end_date else None,
-            "status": trek.status,
-            "operational_progress": trek.operational_progress,
-            "progress": trek.operational_progress,
-            "assigned_staff_name": trek.assigned_staff.full_name if trek.assigned_staff else None
-        } if trek else None,
-        "trek_name": trek.trek_name if trek else None,
-        "trek_location": trek.location if trek else None,
-        "trek_difficulty": trek.difficulty if trek else None,
-        "trek_duration_days": trek.duration_days if trek else None,
-        "trek_start_date": trek.start_date.isoformat() if trek and trek.start_date else None,
-        "trek_end_date": trek.end_date.isoformat() if trek and trek.end_date else None,
-        "trek_status": trek.status if trek else None,
-        "trek_operational_progress": trek.operational_progress if trek else None
+            "id": t.id,
+            "name": t.trek_name,
+            "trek_name": t.trek_name,
+            "location": t.location,
+            "difficulty": t.difficulty,
+            "duration_days": t.duration_days,
+            "start_date": t.start_date.isoformat() if t.start_date else None,
+            "end_date": t.end_date.isoformat() if t.end_date else None,
+            "status": t.status,
+            "operational_progress": t.operational_progress,
+            "progress": t.operational_progress,
+            "assigned_staff_name": t.assigned_staff.full_name if t.assigned_staff else None,
+            "is_completed": trek_is_completed,
+        } if t else None,
+        "trek_name": t.trek_name if t else None,
+        "trek_location": t.location if t else None,
+        "trek_difficulty": t.difficulty if t else None,
+        "trek_duration_days": t.duration_days if t else None,
+        "trek_start_date": t.start_date.isoformat() if t and t.start_date else None,
+        "trek_end_date": t.end_date.isoformat() if t and t.end_date else None,
+        "trek_status": t.status if t else None,
+        "trek_operational_progress": t.operational_progress if t else None
     }
 
 
@@ -437,5 +443,42 @@ def get_booking_details(booking_id):
     serialized = serialize_trekker_booking(booking)
     return success_response(
         "Booking details retrieved successfully",
+        data={"booking": serialized, **serialized}
+    )
+
+
+# =============================================================================
+# 8. Cancel Active Booking
+# =============================================================================
+@trekker_bp.route("/bookings/<int:booking_id>/cancel", methods=["POST"])
+@role_required("Trekker")
+def cancel_booking(booking_id):
+    """Cancel an active booking reservation strictly owned by the authenticated Trekker."""
+    user = g.current_user
+    booking = db.session.get(Booking, booking_id)
+    if not booking:
+        return error_response(f"Booking with ID {booking_id} not found.", status_code=404)
+
+    # Strictly isolated: cannot cancel another user's booking
+    if booking.user_id != user.id:
+        return error_response("You are not authorized to cancel this booking.", status_code=403)
+
+    if booking.booking_status == "Cancelled":
+        return error_response("This booking is already cancelled.", status_code=400)
+
+    if booking.booking_status == "Completed":
+        return error_response("Completed bookings cannot be cancelled.", status_code=400)
+
+    trek = booking.trek
+    if trek and (trek.status == "Completed" or trek.operational_progress == "Completed"):
+        return error_response("Cannot cancel a booking for an expedition that is already completed.", status_code=400)
+
+    booking.booking_status = "Cancelled"
+    booking.payment_status = "Refunded"
+    db.session.commit()
+
+    serialized = serialize_trekker_booking(booking, trek=trek)
+    return success_response(
+        f"Booking #{booking.id} for trek '{trek.trek_name if trek else ''}' has been successfully cancelled.",
         data={"booking": serialized, **serialized}
     )
