@@ -47,9 +47,11 @@ def create_app(config_name: str = None) -> Flask:
     from backend.app.celery_app import celery_init_app
     celery_init_app(app)
 
-    # Initialize Celery
-    from backend.app.celery_app import celery_init_app
-    celery_init_app(app)
+    # Initialize Redis Caching Service (Milestone 8)
+    from backend.app.services.cache_service import cache_service
+    cache_service.init_app(app)
+    if app.config.get("TESTING"):
+        cache_service.clear_all()
     
     # Import models within app context so SQLAlchemy is aware of all models
     with app.app_context():

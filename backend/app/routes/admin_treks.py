@@ -1,10 +1,11 @@
 """Admin trek management routes."""
 from datetime import date
-from flask import Blueprint, request
+from flask import Blueprint, request, current_app
 from sqlalchemy import or_, desc, asc
 from backend.app.extensions import db
 from backend.app.models.trek import Trek
 from backend.app.models.user import User
+from backend.app.services.cache_service import cache_service
 from backend.app.utils.decorators import role_required
 from backend.app.utils.responses import success_response, error_response
 
@@ -14,7 +15,7 @@ admin_treks_bp = Blueprint("admin_treks", __name__, url_prefix="/api/admin/treks
 @admin_treks_bp.route("", methods=["GET"])
 @role_required("Admin")
 def list_treks():
-    """List all treks with pagination, search, filter, and sorting."""
+    """List all treks with pagination, search, filter, sorting, and Redis caching."""
     page = request.args.get("page", 1, type=int)
     per_page = min(request.args.get("per_page", 10, type=int), 100)
     search = request.args.get("search", "").strip()
@@ -24,6 +25,19 @@ def list_treks():
     sort_by = request.args.get("sort_by", "created_at").strip()
     sort_order = request.args.get("sort_order", "desc").strip().lower()
 
+    # Build unique cache key distinguishing all query parameters
+    query_key = f"p={page}&pp={per_page}&s={search}&d={difficulty}&st={status}&l={location}&sb={sort_by}&so={sort_order}"
+    cache_key = cache_service.build_key("treks:admin:list", query_key)
+
+    cached_data = cache_service.get(cache_key)
+    if cached_data is not None and isinstance(cached_data, dict):
+        return success_response(
+            "Treks retrieved successfully",
+            data=cached_data,
+            headers={"X-Cache": "HIT"}
+        )
+
+    # Cache MISS - Query from Database
     query = Trek.query
 
     # Search filter
@@ -51,33 +65,59 @@ def list_treks():
 
     paginated = query.paginate(page=page, per_page=per_page, error_out=False)
 
+    response_data = {
+        "treks": [trek.to_dict() for trek in paginated.items],
+        "pagination": {
+            "page": paginated.page,
+            "per_page": paginated.per_page,
+            "total": paginated.total,
+            "total_items": paginated.total,
+            "pages": paginated.pages,
+            "total_pages": paginated.pages,
+            "has_prev": paginated.has_prev,
+            "has_next": paginated.has_next,
+        }
+    }
+
+    ttl = current_app.config.get("CACHE_TREK_LIST_TTL", 300)
+    cache_service.set(cache_key, response_data, timeout=ttl)
+
     return success_response(
         "Treks retrieved successfully",
-        data={
-            "treks": [trek.to_dict() for trek in paginated.items],
-            "pagination": {
-                "page": paginated.page,
-                "per_page": paginated.per_page,
-                "total": paginated.total,
-                "total_items": paginated.total,
-                "pages": paginated.pages,
-                "total_pages": paginated.pages,
-                "has_prev": paginated.has_prev,
-                "has_next": paginated.has_next,
-            }
-        }
+        data=response_data,
+        headers={"X-Cache": "MISS"}
     )
 
 
 @admin_treks_bp.route("/<int:trek_id>", methods=["GET"])
 @role_required("Admin")
 def get_trek(trek_id):
-    """Retrieve details of a single trek."""
+    """Retrieve details of a single trek with caching."""
+    cache_key = cache_service.build_key("treks:admin:detail", str(trek_id))
+
+    cached_data = cache_service.get(cache_key)
+    if cached_data is not None and isinstance(cached_data, dict):
+        return success_response(
+            "Trek details retrieved successfully",
+            data=cached_data,
+            headers={"X-Cache": "HIT"}
+        )
+
+    # Cache MISS
     trek = db.session.get(Trek, trek_id)
     if not trek:
         return error_response(f"Trek with ID {trek_id} not found.", status_code=404)
     trek_dict = trek.to_dict()
-    return success_response("Trek details retrieved successfully", data={"trek": trek_dict, **trek_dict})
+    data = {"trek": trek_dict, **trek_dict}
+
+    ttl = current_app.config.get("CACHE_TREK_DETAIL_TTL", 300)
+    cache_service.set(cache_key, data, timeout=ttl)
+
+    return success_response(
+        "Trek details retrieved successfully",
+        data=data,
+        headers={"X-Cache": "MISS"}
+    )
 
 
 @admin_treks_bp.route("", methods=["POST"])
@@ -182,6 +222,8 @@ def create_trek():
         )
         db.session.add(new_trek)
         db.session.commit()
+        # Invalidate cached trek listings (Milestone 8)
+        cache_service.invalidate_trek_cache()
     except Exception as e:
         db.session.rollback()
         return error_response(f"Failed to create trek: {str(e)}", status_code=400)
@@ -329,6 +371,8 @@ def update_trek(trek_id):
 
     try:
         db.session.commit()
+        # Invalidate cached trek listings and details (Milestone 8)
+        cache_service.invalidate_trek_cache(trek.id)
     except Exception as e:
         db.session.rollback()
         return error_response(f"Failed to update trek: {str(e)}", status_code=400)
@@ -362,6 +406,8 @@ def delete_trek(trek_id):
     try:
         db.session.delete(trek)
         db.session.commit()
+        # Invalidate cached trek listings and details (Milestone 8)
+        cache_service.invalidate_trek_cache(trek_id)
     except Exception as e:
         db.session.rollback()
         return error_response(f"Failed to delete trek: {str(e)}", status_code=500)
@@ -383,6 +429,8 @@ def assign_staff_to_trek(trek_id):
     if staff_id is None or staff_id == "":
         trek.assigned_staff_id = None
         db.session.commit()
+        # Invalidate cached trek listings and details (Milestone 8)
+        cache_service.invalidate_trek_cache(trek.id)
         trek_dict = trek.to_dict()
         return success_response(
             "Staff assignment removed successfully",
@@ -412,6 +460,8 @@ def assign_staff_to_trek(trek_id):
 
     trek.assigned_staff_id = staff_id
     db.session.commit()
+    # Invalidate cached trek listings and details (Milestone 8)
+    cache_service.invalidate_trek_cache(trek.id)
 
     trek_dict = trek.to_dict()
     return success_response(

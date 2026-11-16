@@ -5,6 +5,7 @@ from backend.app.extensions import db
 from backend.app.models.trek import Trek
 from backend.app.models.booking import Booking
 from backend.app.models.user import User
+from backend.app.services.cache_service import cache_service
 from backend.app.utils.decorators import role_required
 from backend.app.utils.responses import success_response, error_response
 
@@ -218,6 +219,8 @@ def update_trek_slots(trek_id):
 
     trek.available_slots = new_slots
     db.session.commit()
+    # Invalidate cached trek listings and details (Milestone 8)
+    cache_service.invalidate_trek_cache(trek.id)
 
     serialized = serialize_staff_trek(trek)
     return success_response(
@@ -257,6 +260,8 @@ def update_trek_status(trek_id):
 
     trek.status = new_status
     db.session.commit()
+    # Invalidate cached trek listings and details (Milestone 8)
+    cache_service.invalidate_trek_cache(trek.id)
 
     serialized = serialize_staff_trek(trek)
     return success_response(
@@ -321,6 +326,8 @@ def update_trek_progress(trek_id):
             b.booking_status = "Completed"
 
     db.session.commit()
+    # Invalidate cached trek listings and details (Milestone 8)
+    cache_service.invalidate_trek_cache(trek.id)
 
     serialized = serialize_staff_trek(trek)
     return success_response(

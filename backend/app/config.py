@@ -44,6 +44,12 @@ class BaseConfig:
     CELERY_TIMEZONE = "UTC"
     REMINDER_WINDOW_DAYS = int(os.environ.get("REMINDER_WINDOW_DAYS", 3))
 
+    # Caching Settings (Milestone 8)
+    CACHE_KEY_PREFIX = os.environ.get("CACHE_KEY_PREFIX", "tma")
+    CACHE_DEFAULT_TIMEOUT = int(os.environ.get("CACHE_DEFAULT_TIMEOUT", 300))
+    CACHE_TREK_LIST_TTL = int(os.environ.get("CACHE_TREK_LIST_TTL", 300))
+    CACHE_TREK_DETAIL_TTL = int(os.environ.get("CACHE_TREK_DETAIL_TTL", 300))
+
     # Private directories for exports and reports
     EXPORTS_DIR = INSTANCE_DIR / "exports"
     REPORTS_DIR = INSTANCE_DIR / "reports"
@@ -73,6 +79,8 @@ class TestingConfig(BaseConfig):
     CELERY_TASK_EAGER_PROPAGATES = True
     CELERY_BROKER_URL = "memory://"
     CELERY_RESULT_BACKEND = "cache+memory://"
+    # Isolated test cache namespace
+    CACHE_KEY_PREFIX = "tma:test"
 
 
 

@@ -9,6 +9,7 @@ from backend.app.models.user import User
 from backend.app.models.trek import Trek
 from backend.app.models.booking import Booking
 from backend.app.models.export_job import ExportJob
+from backend.app.services.cache_service import cache_service
 from backend.app.utils.decorators import role_required
 from backend.app.utils.responses import success_response, error_response
 
@@ -41,6 +42,28 @@ def serialize_trekker_trek(trek, current_user_id=None):
         d["can_book"] = d["is_bookable"]
 
     return d
+
+
+def personalize_trekker_treks(base_treks, user_id):
+    """Safely personalize cached trek dictionaries with user-specific active booking state."""
+    if not user_id or not base_treks:
+        return base_treks
+    trek_ids = [t["id"] for t in base_treks if isinstance(t, dict) and "id" in t]
+    active_user_bookings = set(
+        db.session.query(Booking.trek_id)
+        .filter(Booking.user_id == user_id, Booking.trek_id.in_(trek_ids), Booking.booking_status == "Booked")
+        .all()
+    )
+    active_set = {row[0] for row in active_user_bookings}
+
+    personalized = []
+    for t in base_treks:
+        t_copy = dict(t)
+        has_active = t_copy["id"] in active_set
+        t_copy["has_active_booking"] = has_active
+        t_copy["can_book"] = t_copy.get("is_bookable", False) and not has_active
+        personalized.append(t_copy)
+    return personalized
 
 
 def serialize_trekker_booking(booking, trek=None):
@@ -212,7 +235,7 @@ def update_profile():
 @trekker_bp.route("/treks", methods=["GET"])
 @role_required("Trekker")
 def list_available_treks():
-    """Browse treks available for booking with search, filters, and pagination."""
+    """Browse treks available for booking with search, filters, pagination, and Redis caching."""
     user = g.current_user
     page = request.args.get("page", 1, type=int)
     per_page = min(request.args.get("per_page", 10, type=int), 50)
@@ -225,6 +248,26 @@ def list_available_treks():
     sort_by = request.args.get("sort_by", "start_date").strip()
     sort_order = request.args.get("sort_order", "asc").strip().lower()
 
+    # Build unique cache key distinguishing all query parameters
+    query_key = f"p={page}&pp={per_page}&s={search}&d={difficulty}&l={location}&dur={duration}&min={min_duration}&max={max_duration}&sb={sort_by}&so={sort_order}"
+    cache_key = cache_service.build_key("treks:trekker:list", query_key)
+
+    # Check cache for serialized catalog data
+    cached_payload = cache_service.get(cache_key)
+    if cached_payload is not None and isinstance(cached_payload, dict):
+        base_treks = cached_payload.get("treks", [])
+        pagination = cached_payload.get("pagination", {})
+        personalized_treks = personalize_trekker_treks(base_treks, user.id)
+        return success_response(
+            "Available treks retrieved successfully",
+            data={
+                "treks": personalized_treks,
+                "pagination": pagination,
+            },
+            headers={"X-Cache": "HIT"}
+        )
+
+    # Cache MISS - Execute database queries
     # Only treks that are Open for bookings and not completed
     query = Trek.query.filter(
         Trek.status == "Open",
@@ -259,21 +302,30 @@ def list_available_treks():
 
     paginated = query.paginate(page=page, per_page=per_page, error_out=False)
 
+    base_treks = [serialize_trekker_trek(trek, current_user_id=None) for trek in paginated.items]
+    pagination_dict = {
+        "page": paginated.page,
+        "per_page": paginated.per_page,
+        "total": paginated.total,
+        "total_items": paginated.total,
+        "pages": paginated.pages,
+        "total_pages": paginated.pages,
+        "has_prev": paginated.has_prev,
+        "has_next": paginated.has_next,
+    }
+
+    # Store base data in Redis with configured TTL
+    ttl = current_app.config.get("CACHE_TREK_LIST_TTL", 300)
+    cache_service.set(cache_key, {"treks": base_treks, "pagination": pagination_dict}, timeout=ttl)
+
+    personalized_treks = personalize_trekker_treks(base_treks, user.id)
     return success_response(
         "Available treks retrieved successfully",
         data={
-            "treks": [serialize_trekker_trek(trek, current_user_id=user.id) for trek in paginated.items],
-            "pagination": {
-                "page": paginated.page,
-                "per_page": paginated.per_page,
-                "total": paginated.total,
-                "total_items": paginated.total,
-                "pages": paginated.pages,
-                "total_pages": paginated.pages,
-                "has_prev": paginated.has_prev,
-                "has_next": paginated.has_next,
-            }
-        }
+            "treks": personalized_treks,
+            "pagination": pagination_dict,
+        },
+        headers={"X-Cache": "MISS"}
     )
 
 
@@ -283,14 +335,36 @@ def list_available_treks():
 @trekker_bp.route("/treks/<int:trek_id>", methods=["GET"])
 @role_required("Trekker")
 def get_trek_details(trek_id):
-    """Retrieve detailed information and booking eligibility for a specific trek."""
+    """Retrieve detailed information and booking eligibility for a specific trek with caching."""
     user = g.current_user
+    cache_key = cache_service.build_key("treks:trekker:detail", str(trek_id))
+
+    cached_base = cache_service.get(cache_key)
+    if cached_base is not None and isinstance(cached_base, dict):
+        personalized_list = personalize_trekker_treks([cached_base], user.id)
+        personalized = personalized_list[0] if personalized_list else cached_base
+        return success_response(
+            "Trek details retrieved successfully",
+            data={"trek": personalized, **personalized},
+            headers={"X-Cache": "HIT"}
+        )
+
+    # Cache MISS
     trek = db.session.get(Trek, trek_id)
     if not trek:
         return error_response(f"Trek with ID {trek_id} not found.", status_code=404)
 
-    data = serialize_trekker_trek(trek, current_user_id=user.id)
-    return success_response("Trek details retrieved successfully", data={"trek": data, **data})
+    base_trek = serialize_trekker_trek(trek, current_user_id=None)
+    ttl = current_app.config.get("CACHE_TREK_DETAIL_TTL", 300)
+    cache_service.set(cache_key, base_trek, timeout=ttl)
+
+    personalized_list = personalize_trekker_treks([base_trek], user.id)
+    personalized = personalized_list[0] if personalized_list else base_trek
+    return success_response(
+        "Trek details retrieved successfully",
+        data={"trek": personalized, **personalized},
+        headers={"X-Cache": "MISS"}
+    )
 
 
 # =============================================================================
@@ -379,6 +453,10 @@ def book_trek():
         return error_response(f"Booking creation failed: {str(e)}", status_code=500)
 
     serialized = serialize_trekker_booking(booking)
+
+    # Invalidate cached trek listings and details (Milestone 8)
+    cache_service.invalidate_trek_cache(trek.id)
+
     return success_response(
         f"Expedition slot successfully reserved for '{trek.trek_name}'!",
         data={"booking": serialized, **serialized},
@@ -477,6 +555,10 @@ def cancel_booking(booking_id):
     booking.booking_status = "Cancelled"
     booking.payment_status = "Refunded"
     db.session.commit()
+
+    # Invalidate cached trek listings and details (Milestone 8)
+    if trek:
+        cache_service.invalidate_trek_cache(trek.id)
 
     serialized = serialize_trekker_booking(booking, trek=trek)
     return success_response(
