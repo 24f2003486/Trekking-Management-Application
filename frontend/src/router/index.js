@@ -18,6 +18,10 @@ import StaffTreksView from '../views/StaffTreksView.vue'
 import StaffTrekDetailsView from '../views/StaffTrekDetailsView.vue'
 import StaffParticipantsView from '../views/StaffParticipantsView.vue'
 import TrekkerDashboardView from '../views/TrekkerDashboardView.vue'
+import BrowseTreksView from '../views/BrowseTreksView.vue'
+import TrekDetailsView from '../views/TrekDetailsView.vue'
+import MyBookingsView from '../views/MyBookingsView.vue'
+import TrekkerProfileView from '../views/TrekkerProfileView.vue'
 import UnauthorizedView from '../views/UnauthorizedView.vue'
 
 const routes = [
@@ -131,6 +135,30 @@ const routes = [
     path: '/trekker/dashboard',
     name: 'TrekkerDashboard',
     component: TrekkerDashboardView,
+    meta: { requiresAuth: true, allowedRoles: ['Trekker'] }
+  },
+  {
+    path: '/trekker/treks',
+    name: 'BrowseTreks',
+    component: BrowseTreksView,
+    meta: { requiresAuth: true, allowedRoles: ['Trekker'] }
+  },
+  {
+    path: '/trekker/treks/:id',
+    name: 'TrekDetails',
+    component: TrekDetailsView,
+    meta: { requiresAuth: true, allowedRoles: ['Trekker'] }
+  },
+  {
+    path: '/trekker/bookings',
+    name: 'MyBookings',
+    component: MyBookingsView,
+    meta: { requiresAuth: true, allowedRoles: ['Trekker'] }
+  },
+  {
+    path: '/trekker/profile',
+    name: 'TrekkerProfile',
+    component: TrekkerProfileView,
     meta: { requiresAuth: true, allowedRoles: ['Trekker'] }
   },
   {

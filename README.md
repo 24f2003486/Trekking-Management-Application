@@ -2,7 +2,7 @@
 
 **Course:** Modern Application Development II (MAD-II)  
 **Institution:** Indian Institute of Technology Madras (IIT Madras)  
-**Project Status:** Milestone 4 Completed (Trek Staff Dashboard and Trek Operations)
+**Project Status:** Milestone 5 Completed (User Dashboard and Trek Booking System)
 
 ---
 
@@ -13,7 +13,7 @@ The **Trekking Management Application V2 (TMA)** is a multi-user, web-based plat
 By integrating a responsive frontend with a scalable RESTful backend, TMA aims to provide end-to-end expedition scheduling, participant management, and real-time activity tracking.
 
 > **Project Status Disclaimer:**  
-> This repository currently includes **Milestone 0 (Project Setup)**, **Milestone 1 (Database Models & Schema)**, **Milestone 2 (Authentication & Role-Based Access Control)**, **Milestone 3 (Admin Dashboard and Management)**, and **Milestone 4 (Trek Staff Dashboard and Trek Operations)**. Trekker booking self-service workflows, Redis caching, and Celery background workers belong to subsequent milestones.
+> This repository currently includes **Milestone 0 (Project Setup)**, **Milestone 1 (Database Models & Schema)**, **Milestone 2 (Authentication & Role-Based Access Control)**, **Milestone 3 (Admin Dashboard and Management)**, **Milestone 4 (Trek Staff Dashboard and Trek Operations)**, and **Milestone 5 (User Dashboard and Trek Booking System)**. Redis caching and Celery background workers belong to subsequent milestones.
 
 ---
 
@@ -129,14 +129,23 @@ Development is organized in incremental milestones:
   - Sanitized participant roster API (`GET /api/staff/treks/<id>/participants`) with status filtering, search, and zero exposure of user credentials
   - Responsive Vue 3 + Bootstrap 5 Staff views (`StaffDashboardView.vue`, `StaffTreksView.vue`, `StaffTrekDetailsView.vue`, `StaffParticipantsView.vue`) and `StaffSidebar.vue`
   - 108 automated unit tests passing across 12 test suites
-- [ ] **Milestone 5: Trekker Portal, Redis Caching & Celery Background Tasks**
-  - Trekker booking & self-service cancellation workflow
-  - Redis caching integration for high-traffic catalog queries
+- [x] **Milestone 5: User Dashboard and Trek Booking System (Completed)**
+  - Strict Trekker role and active account status authorization (`role == 'Trekker'`, `status == 'Active'`)
+  - Live Trekker metrics dashboard API (`GET /api/trekker/dashboard`) aggregating personal booking totals, active spots, cancelled/completed reservations, and upcoming expeditions
+  - Profile retrieval and update APIs (`GET/PUT /api/trekker/profile`) allowing updates to permitted fields (`full_name`, `contact_number`) while strictly blocking role or status mutation
+  - Available treks catalog & discovery API (`GET /api/trekker/treks`) filtering exclusively open and uncompleted expeditions with name/location search, difficulty/duration filters, and pagination
+  - Single trek details API (`GET /api/trekker/treks/<id>`) exposing capacity, remaining slots, and personal eligibility flags (`has_active_booking`, `is_bookable`, `can_book`)
+  - Robust booking creation API (`POST /api/trekker/bookings`) with prerequisite checks (existence, status `Open`, non-concluded, capacity limit) and SQLite partial unique index enforcement (`uq_active_user_trek_booking`)
+  - Personal booking history and details APIs (`GET /api/trekker/bookings`, `GET /api/trekker/bookings/<id>`) strictly isolated to the authenticated user (HTTP 403 on foreign bookings)
+  - 5 responsive Vue 3 + Bootstrap 5 views (`TrekkerDashboardView.vue`, `BrowseTreksView.vue`, `TrekDetailsView.vue`, `MyBookingsView.vue`, `TrekkerProfileView.vue`) and modular components (`TrekCard.vue`, `TrekSearchFilters.vue`, `BookingStatusBadge.vue`, `BookingConfirmationModal.vue`, `TrekkerSidebar.vue`)
+  - 135 total automated unit tests passing across 16 test suites (27 new Milestone 5 tests + 108 regression tests)
+- [ ] **Milestone 6: Performance Caching, Celery Background Tasks & Reporting**
+  - Redis caching for high-traffic public catalog queries
   - Celery asynchronous notification pipeline (email alerts & departure reminders)
-  - Celery Beat scheduled jobs and monthly reporting
-- [ ] **Milestone 6: Verification, Testing & Final Documentation**
-  - End-to-end integration testing and bug fixes
-  - API documentation, setup instructions, and deployment readiness
+  - Celery Beat scheduled jobs and monthly administrative summary reporting
+- [ ] **Milestone 7: Verification, Final Testing & Deployment Packaging**
+  - End-to-end integration verification and load checks
+  - Final documentation, user manual, and submission packaging
 
 ---
 
@@ -392,7 +401,59 @@ The Trek Staff interface includes 4 dedicated views and navigation components:
 
 ---
 
-## 12. Repository Structure
+## 12. Milestone 5: User Dashboard and Trek Booking System
+
+### 12.1 Authorization & Identity Derivation
+All Trekker endpoints enforce strict role-based access control and tenant isolation:
+- **RBAC Enforcement:** Access is granted strictly to authenticated users with role `'Trekker'` and account status `'Active'`. Inactive or blacklisted users receive HTTP 403 Forbidden. Other roles (Admin, Trek Staff) cannot access Trekker-specific endpoints.
+- **Identity Derivation:** The user identity is extracted exclusively from the verified JWT identity (`g.current_user`). The backend never trusts user IDs supplied in request payloads or query strings.
+- **Data Isolation:** Booking history and booking details are strictly isolated: a Trekker can only view and manage their own bookings (`Booking.user_id == current_user.id`). Attempting to inspect another user's booking returns HTTP 403 Forbidden.
+
+### 12.2 Trek Catalog & Search/Filters
+- **Eligibility Criteria:** The catalog query (`GET /api/trekker/treks`) strictly returns treks that are currently `status == 'Open'` and not concluded (`operational_progress != 'Completed'`). Treks with statuses `Pending`, `Approved`, `Closed`, or completed progress are excluded.
+- **Search & Filters:** Supports keyword search across `trek_name` and `location`, exact or ranged duration filtering (`duration`, `min_duration`, `max_duration`), and difficulty filtering (`Easy`, `Moderate`, `Hard`).
+- **Dynamic Capacity & Eligibility Flags:** Each trek object includes:
+  - `total_slots`: Allocated capacity (`available_slots`).
+  - `booked_slots`: Current active confirmed reservations (`booking_status == 'Booked'`).
+  - `remaining_slots`: Open capacity (`max(0, available_slots - booked_slots)`).
+  - `has_active_booking`: `true` if the authenticated user already holds an active reservation for this trek.
+  - `can_book` / `is_bookable`: Boolean flag verifying that the trek is open, uncompleted, has remaining capacity, and the user has no existing active booking.
+
+### 12.3 Trek Booking Rules & Integrity Enforcement
+The booking creation endpoint (`POST /api/trekker/bookings`) enforces strict validation and transactional integrity:
+1. **Trek Existence:** Verifies the requested `trek_id` exists in the database (HTTP 404 if not found).
+2. **Completion Check:** Rejects attempts to book treks with `status == 'Completed'` or `operational_progress == 'Completed'` (HTTP 400 Bad Request).
+3. **Availability Check:** Rejects attempts to book treks with `status != 'Open'` (HTTP 400 Bad Request).
+4. **Active Duplicate Booking Guard:** Verifies whether the authenticated user already holds a reservation with `booking_status == 'Booked'` for the trek (HTTP 409 Conflict).
+5. **Capacity Guard:** Verifies that active bookings have not exhausted allocated capacity (`active_count < trek.available_slots`) (HTTP 409 Conflict).
+6. **Partial Unique Index Enforcement:** Database integrity is guaranteed by the partial unique index `uq_active_user_trek_booking` on `(user_id, trek_id)` where `booking_status = 'Booked'`. Concurrent requests are safely handled with rollback on `IntegrityError` (HTTP 409 Conflict).
+7. **Re-booking After Cancellation:** When an existing booking has been cancelled (`booking_status == 'Cancelled'`), the partial unique index allows the trekker to place a subsequent new active booking.
+
+### 12.4 Trekker REST API Endpoints
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/trekker/dashboard` | Trekker | Live dashboard metrics: total, active, cancelled, and completed booking counts, upcoming expedition reservations, and recent booking log |
+| `GET` | `/api/trekker/profile` | Trekker | Retrieve authenticated Trekker's profile without exposing password hashes |
+| `PUT` | `/api/trekker/profile` | Trekker | Update permitted profile fields (`full_name`, `contact_number`); strictly rejects role or status mutation |
+| `GET` | `/api/trekker/treks` | Trekker | Paginated list of available open treks with search, difficulty, and duration filters |
+| `GET` | `/api/trekker/treks/<id>` | Trekker | Detailed expedition overview with real-time remaining capacity and user booking eligibility flags |
+| `POST` | `/api/trekker/bookings` | Trekker | Atomically create a new trek reservation with capacity and duplicate booking validation (returns HTTP 201 Created) |
+| `GET` | `/api/trekker/bookings` | Trekker | Paginated personal booking history strictly isolated to current user with status filter (`Booked`, `Completed`, `Cancelled`) |
+| `GET` | `/api/trekker/bookings/<id>` | Trekker | Detailed single booking record (strictly returns HTTP 403 if requested booking belongs to another user) |
+
+### 12.5 Frontend Trekker Portal (Vue 3 + Bootstrap 5)
+The Trekker interface includes 5 dedicated views and reusable components:
+1. **`TrekkerSidebar.vue`:** Trekker navigation sidebar with active route indicator and user identity card.
+2. **`TrekkerDashboardView.vue` (`/trekker/dashboard`):** Real-time metric cards (`Total Bookings`, `Active Confirmed`, `Cancelled`, `Completed`), upcoming expedition reservations with route badges, and recent activity log.
+3. **`BrowseTreksView.vue` (`/trekker/treks`):** Expedition catalog view featuring `TrekSearchFilters.vue`, interactive `TrekCard.vue` grid with real-time capacity progress bars, pagination, and `BookingConfirmationModal.vue`.
+4. **`TrekDetailsView.vue` (`/trekker/treks/:id`):** In-depth expedition page with route description, difficulty badge, guide information, visual capacity meter, eligibility status banners, and one-click reservation trigger.
+5. **`MyBookingsView.vue` (`/trekker/bookings`):** Personal expedition history table with status filter tabs (`All`, `Active Confirmed`, `Completed`, `Cancelled`), `BookingStatusBadge.vue`, operational progress badges, and quick-info modal dialog.
+6. **`TrekkerProfileView.vue` (`/trekker/profile`):** Personal profile management view with live client-side validation, emergency contact editing, and protected account role/status badges.
+
+---
+
+## 13. Repository Structure
 
 ```text
 trekking-management-app/
@@ -426,7 +487,7 @@ trekking-management-app/
 │   │   │   ├── admin_bookings.py  # /api/admin/bookings read-only audit routes
 │   │   │   ├── admin_reports.py   # /api/admin/reports aggregate analytics routes
 │   │   │   ├── staff.py           # /api/staff routes (dashboard, treks, operations, participants)
-│   │   │   └── trekker.py         # /api/trekker routes (dashboard)
+│   │   │   └── trekker.py         # /api/trekker routes (dashboard, profile, treks, bookings)
 │   │   └── utils/
 │   │       ├── __init__.py
 │   │       ├── decorators.py      # @role_required, @active_user_required
@@ -450,7 +511,11 @@ trekking-management-app/
 │       ├── test_staff_dashboard.py    # 5 automated tests for staff metrics, isolation & RBAC
 │       ├── test_staff_treks.py        # 7 automated tests for assigned trek listing & 403 isolation
 │       ├── test_staff_operations.py   # 11 automated tests for slots, status, and progress state machine
-│       └── test_staff_participants.py  # 5 automated tests for roster retrieval & privacy
+│       ├── test_staff_participants.py  # 5 automated tests for roster retrieval & privacy
+│       ├── test_trekker_profile.py    # 6 automated tests for trekker profile retrieval, updates & guards
+│       ├── test_trekker_treks.py      # 7 automated tests for trek catalog, search, filters & pagination
+│       ├── test_trekker_bookings.py   # 8 automated tests for booking creation, capacity & partial unique index
+│       └── test_trekker_history.py    # 6 automated tests for isolated booking history, filters & dashboard
 └── frontend/
     ├── package.json               # Vue 3, Vue Router, Bootstrap, Axios
     ├── vite.config.js             # Vite config with backend API proxy
@@ -464,36 +529,45 @@ trekking-management-app/
         │   ├── api.js             # Axios instance with JWT request/response interceptors
         │   └── auth.js            # Centralized authentication state management
         ├── components/
-        │   ├── Navbar.vue             # Responsive Bootstrap navigation bar
-        │   ├── AdminSidebar.vue       # Administrative navigation sidebar
-        │   ├── StaffSidebar.vue       # Trek Staff navigation sidebar
-        │   ├── StatCard.vue           # Reusable metric card component
-        │   ├── Pagination.vue         # Reusable table pagination component
-        │   └── ConfirmationModal.vue  # Reusable action confirmation dialog
+        │   ├── Navbar.vue                 # Responsive Bootstrap navigation bar
+        │   ├── AdminSidebar.vue           # Administrative navigation sidebar
+        │   ├── StaffSidebar.vue           # Trek Staff navigation sidebar
+        │   ├── TrekkerSidebar.vue         # Trekker navigation sidebar
+        │   ├── StatCard.vue               # Reusable metric card component
+        │   ├── Pagination.vue             # Reusable table pagination component
+        │   ├── ConfirmationModal.vue      # Reusable action confirmation dialog
+        │   ├── BookingStatusBadge.vue     # Reusable booking status badge component
+        │   ├── BookingConfirmationModal.vue # Reusable expedition reservation modal
+        │   ├── TrekCard.vue               # Reusable trek catalog card component
+        │   └── TrekSearchFilters.vue      # Reusable catalog search & filter toolbar
         └── views/
-            ├── LoginView.vue          # Sign-in page
-            ├── RegisterView.vue       # Trekker registration page
-            ├── AdminDashboardView.vue # Admin overview portal
-            ├── ManageTreksView.vue    # Trek catalog management view
-            ├── CreateTrekView.vue     # New trek route creation form
-            ├── EditTrekView.vue       # Trek route modification form
-            ├── ManageStaffView.vue    # Trek staff directory & status view
-            ├── CreateStaffView.vue    # Staff provisioning form
-            ├── EditStaffView.vue      # Staff profile editing form
-            ├── ManageUsersView.vue    # Trekker account management view
-            ├── ManageBookingsView.vue # Read-only booking audit view
-            ├── ReportsView.vue        # Administrative analytics view
-            ├── StaffDashboardView.vue # Trek Staff metrics dashboard view
-            ├── StaffTreksView.vue     # Trek Staff assigned expeditions list view
-            ├── StaffTrekDetailsView.vue # Trek Staff operations & lifecycle view
-            ├── StaffParticipantsView.vue # Trek Staff participant roster view
-            ├── TrekkerDashboardView.vue # Trekker portal placeholder
-            └── UnauthorizedView.vue   # HTTP 403 Access Denied view
+            ├── LoginView.vue              # Sign-in page
+            ├── RegisterView.vue           # Trekker registration page
+            ├── AdminDashboardView.vue     # Admin overview portal
+            ├── ManageTreksView.vue        # Trek catalog management view
+            ├── CreateTrekView.vue         # New trek route creation form
+            ├── EditTrekView.vue           # Trek route modification form
+            ├── ManageStaffView.vue        # Trek staff directory & status view
+            ├── CreateStaffView.vue        # Staff provisioning form
+            ├── EditStaffView.vue          # Staff profile editing form
+            ├── ManageUsersView.vue        # Trekker account management view
+            ├── ManageBookingsView.vue     # Read-only booking audit view
+            ├── ReportsView.vue            # Administrative analytics view
+            ├── StaffDashboardView.vue     # Trek Staff metrics dashboard view
+            ├── StaffTreksView.vue         # Trek Staff assigned expeditions list view
+            ├── StaffTrekDetailsView.vue   # Trek Staff operations & lifecycle view
+            ├── StaffParticipantsView.vue  # Trek Staff participant roster view
+            ├── TrekkerDashboardView.vue   # Trekker metrics dashboard & upcoming trips view
+            ├── BrowseTreksView.vue        # Trek catalog discovery & booking view
+            ├── TrekDetailsView.vue        # Single trek itinerary & capacity view
+            ├── MyBookingsView.vue         # Trekker personal booking history view
+            ├── TrekkerProfileView.vue     # Trekker personal profile & contact edit view
+            └── UnauthorizedView.vue       # HTTP 403 Access Denied view
 ```
 
 ---
 
-## 13. Instructions to Run and Verify (Windows PowerShell)
+## 14. Instructions to Run and Verify (Windows PowerShell)
 
 ### Step 1: Backend Setup & Automated Tests
 
@@ -507,7 +581,7 @@ cd "D:\iitm'\26t3 sep\MAD2\Trekking-Management-Application"
 # Install backend dependencies (if needed)
 pip install -r backend/requirements.txt
 
-# Run all 108 automated unit tests (Milestone 1, 2, 3, and 4)
+# Run all 135 automated unit tests (Milestones 1, 2, 3, 4, and 5)
 python -m unittest discover backend/tests -v
 ```
 
@@ -545,10 +619,10 @@ npm run build
 npm run dev
 ```
 
-Open your browser at `http://localhost:5173` and log in with your Admin credentials to access the Admin Management Suite.
+Open your browser at `http://localhost:5173` and log in with your Trekker or Admin credentials.
 
 ---
 
-## 14. License & Academic Integrity
+## 15. License & Academic Integrity
 
 This project is submitted as coursework for the **Modern Application Development II (MAD-II)** course at **IIT Madras**. All work conforms to academic integrity guidelines established by the program.
