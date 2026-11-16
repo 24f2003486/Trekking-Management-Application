@@ -2,7 +2,7 @@
 
 **Course:** Modern Application Development II (MAD-II)  
 **Institution:** Indian Institute of Technology Madras (IIT Madras)  
-**Project Status:** Initial Setup (Milestone 0)
+**Project Status:** Milestone 1 Completed (Database Models & Schema Setup)
 
 ---
 
@@ -13,7 +13,7 @@ The **Trekking Management Application V2 (TMA)** is a multi-user, web-based plat
 By integrating a responsive frontend with a scalable RESTful backend, TMA aims to provide end-to-end expedition scheduling, participant management, and real-time activity tracking.
 
 > **Project Status Disclaimer:**  
-> This repository represents the **initial project setup (Milestone 0)**. Core application features, database models, business logic, and authentication mechanisms are planned for development in subsequent milestones and are **not yet implemented**.
+> This repository currently includes the **Milestone 0 repository setup** and **Milestone 1 database models and schema**. REST API endpoints, user authentication (JWT/session), Vue.js frontend dashboards, Redis caching, and Celery background jobs are scheduled for subsequent milestones and are **not yet implemented**.
 
 ---
 
@@ -84,14 +84,17 @@ The planned functionalities for subsequent development stages include:
 
 Development is organized in incremental milestones:
 
-- [x] **Milestone 0: Project Setup & Repository Initialization (Current)**
-  - Initialize Git version control on branch `main`
-  - Establish `.gitignore` rules for Python, Flask, SQLite, Redis, Celery, and Vue/Node environments
-  - Document system architecture, objectives, and technology stack in `README.md`
-  - Prepare repository for GitHub hosting
-- [ ] **Milestone 1: Database Architecture & Core REST API**
-  - Schema design with SQLAlchemy (Users, Roles, Treks, Batches, Bookings)
-  - Core CRUD endpoints for trek routes and schedules
+- [x] **Milestone 0: Project Setup & Repository Initialization**
+  - Initialized Git version control on branch `main`
+  - Established `.gitignore` rules for Python, Flask, SQLite, Redis, Celery, and Vue/Node environments
+  - Prepared repository for GitHub hosting
+- [x] **Milestone 1: Database Models & Schema Setup (Completed)**
+  - Application factory pattern (`create_app`) with SQLite configuration
+  - SQLite foreign key constraint enforcement via connection hooks
+  - Database models: `User`, `Trek`, `Booking`, `StaffProfile`
+  - Automated database initialization via `flask init-db` CLI
+  - Secure programmatic Admin account provisioning script (`backend/scripts/create_admin.py`)
+  - Automated unit test suite using isolated in-memory SQLite database (`backend/tests/test_models.py`)
 - [ ] **Milestone 2: Authentication & Frontend Foundation**
   - Role-based authentication backend
   - Vue.js project setup with Bootstrap styling and client-side routing
@@ -109,36 +112,180 @@ Development is organized in incremental milestones:
 
 ---
 
-## 8. Repository Structure (Planned)
+## 8. Milestone 1: Database Architecture & Schema Specification
+
+### 8.1 Database Architecture Overview
+The database uses **SQLite** through **Flask-SQLAlchemy** (SQLAlchemy ORM). SQLite foreign key enforcement is enabled via an engine connect listener (`PRAGMA foreign_keys=ON;`).
+
+All database schema creation is completely **programmatic**; manual database modifications via external GUI applications are prohibited.
+
+### 8.2 Models & Schema
+
+#### 1. User Model (`users`)
+- **`id`** (`Integer`, Primary Key, Autoincrement)
+- **`full_name`** (`String(100)`, Required)
+- **`email`** (`String(120)`, Required, Unique, Indexed)
+- **`password_hash`** (`String(255)`, Required, Werkzeug hashed)
+- **`contact_number`** (`String(20)`, Optional)
+- **`role`** (`String(20)`, Required): Allowed values: `'Admin'`, `'Trek Staff'`, `'Trekker'`
+- **`status`** (`String(20)`, Default `'Active'`): Allowed values: `'Active'`, `'Inactive'`, `'Blacklisted'`
+- **`created_at`** (`DateTime`, Default `utcnow`)
+- **`updated_at`** (`DateTime`, Default `utcnow`, OnUpdate `utcnow`)
+- **Methods:** `set_password(password)`, `check_password(password)`
+- **Relationships:**
+  - `staff_profile`: One-to-One with `StaffProfile` (`back_populates="user"`, `uselist=False`)
+  - `assigned_treks`: One-to-Many with `Trek` as assigned staff
+  - `bookings`: One-to-Many with `Booking` (history preserved)
+
+#### 2. Trek Model (`treks`)
+- **`id`** (`Integer`, Primary Key, Autoincrement)
+- **`trek_name`** (`String(100)`, Required)
+- **`location`** (`String(100)`, Required)
+- **`description`** (`Text`, Optional)
+- **`difficulty`** (`String(20)`, Required): Allowed values: `'Easy'`, `'Moderate'`, `'Hard'`
+- **`duration_days`** (`Integer`, Required): Strictly positive (> 0)
+- **`available_slots`** (`Integer`, Required): Non-negative (>= 0)
+- **`assigned_staff_id`** (`Integer`, Foreign Key `users.id`, Nullable, `ondelete='SET NULL'`)
+- **`status`** (`String(20)`, Required, Default `'Pending'`): Allowed values: `'Pending'`, `'Approved'`, `'Open'`, `'Closed'`, `'Completed'`
+- **`start_date`** (`Date`, Required)
+- **`end_date`** (`Date`, Required): Validated `end_date >= start_date`
+- **`created_at`** (`DateTime`, Default `utcnow`)
+- **`updated_at`** (`DateTime`, Default `utcnow`, OnUpdate `utcnow`)
+- **Relationships:**
+  - `assigned_staff`: Relationship to `User` (validated to have role `'Trek Staff'`)
+  - `bookings`: One-to-Many with `Booking`
+
+#### 3. Booking Model (`bookings`)
+- **`id`** (`Integer`, Primary Key, Autoincrement)
+- **`user_id`** (`Integer`, Foreign Key `users.id`, Required, `ondelete='RESTRICT'`)
+- **`trek_id`** (`Integer`, Foreign Key `treks.id`, Required, `ondelete='RESTRICT'`)
+- **`booking_date`** (`DateTime`, Required, Default `utcnow`)
+- **`booking_status`** (`String(20)`, Required, Default `'Booked'`): Allowed values: `'Booked'`, `'Cancelled'`, `'Completed'`
+- **`payment_status`** (`String(20)`, Optional, Default `'Pending'`): Allowed values: `'Pending'`, `'Paid'`, `'Failed'`, `'Refunded'`
+- **`created_at`** (`DateTime`, Default `utcnow`)
+- **`updated_at`** (`DateTime`, Default `utcnow`, OnUpdate `utcnow`)
+- **Constraints & Indexes:**
+  - Partial unique index `uq_active_user_trek_booking` on `(user_id, trek_id)` where `booking_status = 'Booked'` to prevent duplicate active reservations.
+- **Relationships:**
+  - `user`: Belongs to `User`
+  - `trek`: Belongs to `Trek`
+
+#### 4. Staff Profile Model (`staff_profiles`)
+- **`id`** (`Integer`, Primary Key, Autoincrement)
+- **`user_id`** (`Integer`, Foreign Key `users.id`, Required, Unique, `ondelete='CASCADE'`)
+- **`specialization`** (`String(100)`, Optional)
+- **`experience_years`** (`Integer`, Default `0`): Validated non-negative (>= 0)
+- **`emergency_contact`** (`String(20)`, Optional)
+- **`created_at`** (`DateTime`, Default `utcnow`)
+- **`updated_at`** (`DateTime`, Default `utcnow`, OnUpdate `utcnow`)
+- **Validation:** Only users with role `'Trek Staff'` can hold a staff profile.
+- **Relationships:**
+  - `user`: One-to-One with `User`
+
+---
+
+### 8.3 Entity Relationships Summary
+
+| Relationship | Cardinality | Parent Table | Child Table | Foreign Key | Cascade / Delete Rule |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| **User ↔ Staff Profile** | 1 : 1 | `users` | `staff_profiles` | `staff_profiles.user_id` | `CASCADE` (profile deleted if staff account deleted) |
+| **Trek Staff ↔ Trek** | 1 : N | `users` | `treks` | `treks.assigned_staff_id` | `SET NULL` (trek preserved if staff unassigned) |
+| **User ↔ Booking** | 1 : N | `users` | `bookings` | `bookings.user_id` | `RESTRICT` (booking history strictly preserved) |
+| **Trek ↔ Booking** | 1 : N | `treks` | `bookings` | `bookings.trek_id` | `RESTRICT` (booking history strictly preserved) |
+
+---
+
+### 8.4 Setup and Verification Instructions (Windows PowerShell)
+
+#### Step 1: Create and Activate Virtual Environment
+```powershell
+# Navigate to project root
+cd "D:\iitm'\26t3 sep\MAD2\Trekking-Management-Application"
+
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+```
+
+#### Step 2: Install Dependencies
+```powershell
+pip install -r backend/requirements.txt
+```
+
+#### Step 3: Initialize Database Schema Programmatically
+```powershell
+$env:FLASK_APP = "backend/run.py"
+flask init-db
+```
+*Output: `Database initialized successfully. All tables created.`*
+
+#### Step 4: Provision Initial Admin Account
+```powershell
+# Set initial admin password in environment variable
+$env:ADMIN_INITIAL_PASSWORD = "YourSecurePassword123!"
+
+# Execute admin creation script
+python backend/scripts/create_admin.py
+```
+*Output: `Success: Admin account created successfully.`*  
+*(Rerunning the command will confirm duplicate prevention: `Notice: Admin account already exists...`)*
+
+#### Step 5: Run Automated Unit Tests
+```powershell
+python -m unittest discover backend/tests
+```
+*All 16 test cases run against an isolated in-memory SQLite database.*
+
+#### Step 6: Inspect Created Tables and Admin Record
+```powershell
+python -c "
+import sqlite3
+conn = sqlite3.connect('backend/instance/tma.db')
+cursor = conn.cursor()
+cursor.execute('SELECT name FROM sqlite_master WHERE type=\"table\";')
+print('Tables:', cursor.fetchall())
+cursor.execute('SELECT id, full_name, email, role, status FROM users;')
+print('Users:', cursor.fetchall())
+conn.close()
+"
+```
+
+---
+
+## 9. Repository Structure
 
 ```text
 trekking-management-app/
 ├── .gitignore
 ├── README.md
-├── backend/                  # (To be added in future milestones)
-│   ├── app/
-│   │   ├── models/           # SQLAlchemy models
-│   │   ├── routes/           # Flask API blueprints
-│   │   ├── tasks/            # Celery background workers
-│   │   └── utils/
-│   ├── instance/             # SQLite DB files (git-ignored)
-│   ├── config.py
-│   ├── requirements.txt
-│   └── run.py
-└── frontend/                 # (To be added in future milestones)
-    ├── public/
-    ├── src/
-    │   ├── assets/
-    │   ├── components/
-    │   ├── views/
-    │   ├── router/
-    │   └── App.vue
-    └── package.json
+├── .venv/                         # Virtual environment (git-ignored)
+└── backend/
+    ├── .env.example               # Environment variables template
+    ├── requirements.txt           # Minimal backend dependencies
+    ├── run.py                     # Application entry point & CLI context
+    ├── instance/                  # SQLite DB storage directory (git-ignored)
+    │   └── tma.db
+    ├── app/
+    │   ├── __init__.py            # Flask application factory (create_app)
+    │   ├── config.py              # Environment configurations (Base, Dev, Test)
+    │   ├── extensions.py          # SQLAlchemy extension instance
+    │   └── models/
+    │       ├── __init__.py        # Models export
+    │       ├── user.py            # User model
+    │       ├── trek.py            # Trek model
+    │       ├── booking.py         # Booking model
+    │       └── staff_profile.py   # StaffProfile model
+    ├── scripts/
+    │   └── create_admin.py        # Programmatic admin account provisioning
+    └── tests/
+        ├── __init__.py
+        └── test_models.py         # 16 automated tests for schema & constraints
 ```
 
 ---
 
-## 9. License & Academic Integrity
+## 10. License & Academic Integrity
 
 This project is submitted as coursework for the **Modern Application Development II (MAD-II)** course at **IIT Madras**. All work conforms to academic integrity guidelines established by the program.
-

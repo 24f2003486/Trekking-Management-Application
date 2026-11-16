@@ -100,3 +100,7 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Agent & workspace artifacts
+.agents/
+skills-lock.json
+
