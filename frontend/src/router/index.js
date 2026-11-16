@@ -14,6 +14,9 @@ import ManageUsersView from '../views/ManageUsersView.vue'
 import ManageBookingsView from '../views/ManageBookingsView.vue'
 import ReportsView from '../views/ReportsView.vue'
 import StaffDashboardView from '../views/StaffDashboardView.vue'
+import StaffTreksView from '../views/StaffTreksView.vue'
+import StaffTrekDetailsView from '../views/StaffTrekDetailsView.vue'
+import StaffParticipantsView from '../views/StaffParticipantsView.vue'
 import TrekkerDashboardView from '../views/TrekkerDashboardView.vue'
 import UnauthorizedView from '../views/UnauthorizedView.vue'
 
@@ -104,6 +107,24 @@ const routes = [
     path: '/staff/dashboard',
     name: 'StaffDashboard',
     component: StaffDashboardView,
+    meta: { requiresAuth: true, allowedRoles: ['Trek Staff'] }
+  },
+  {
+    path: '/staff/treks',
+    name: 'StaffTreks',
+    component: StaffTreksView,
+    meta: { requiresAuth: true, allowedRoles: ['Trek Staff'] }
+  },
+  {
+    path: '/staff/treks/:id',
+    name: 'StaffTrekDetails',
+    component: StaffTrekDetailsView,
+    meta: { requiresAuth: true, allowedRoles: ['Trek Staff'] }
+  },
+  {
+    path: '/staff/treks/:id/participants',
+    name: 'StaffParticipants',
+    component: StaffParticipantsView,
     meta: { requiresAuth: true, allowedRoles: ['Trek Staff'] }
   },
   {

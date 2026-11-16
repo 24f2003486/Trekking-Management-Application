@@ -2,7 +2,7 @@
 
 **Course:** Modern Application Development II (MAD-II)  
 **Institution:** Indian Institute of Technology Madras (IIT Madras)  
-**Project Status:** Milestone 3 Completed (Admin Dashboard and Management)
+**Project Status:** Milestone 4 Completed (Trek Staff Dashboard and Trek Operations)
 
 ---
 
@@ -13,7 +13,7 @@ The **Trekking Management Application V2 (TMA)** is a multi-user, web-based plat
 By integrating a responsive frontend with a scalable RESTful backend, TMA aims to provide end-to-end expedition scheduling, participant management, and real-time activity tracking.
 
 > **Project Status Disclaimer:**  
-> This repository currently includes **Milestone 0 (Project Setup)**, **Milestone 1 (Database Models & Schema)**, **Milestone 2 (Authentication & Role-Based Access Control)**, and **Milestone 3 (Admin Dashboard and Management)**. Trekker booking self-service workflows, staff execution portals, Redis caching, and Celery background workers belong to subsequent milestones.
+> This repository currently includes **Milestone 0 (Project Setup)**, **Milestone 1 (Database Models & Schema)**, **Milestone 2 (Authentication & Role-Based Access Control)**, **Milestone 3 (Admin Dashboard and Management)**, and **Milestone 4 (Trek Staff Dashboard and Trek Operations)**. Trekker booking self-service workflows, Redis caching, and Celery background workers belong to subsequent milestones.
 
 ---
 
@@ -118,13 +118,23 @@ Development is organized in incremental milestones:
   - Database-derived Reporting & Statistics REST API (`GET /api/admin/reports`)
   - 10 responsive Vue 3 + Bootstrap 5 Admin views with reusable components (`AdminSidebar`, `StatCard`, `Pagination`, `ConfirmationModal`)
   - 80 automated unit tests passing across 8 test suites with isolated in-memory SQLite databases
-- [ ] **Milestone 4: Trek Staff & Trekker Portals, Redis Caching & Celery Background Tasks**
-  - Trekker booking & cancellation workflow
-  - Trek Staff checkpoint progress & roster management
-  - Redis integration for catalog caching
-  - Celery asynchronous notification pipeline (email alerts & monthly reports)
-  - Celery Beat scheduled jobs
-- [ ] **Milestone 5: Verification, Testing & Final Documentation**
+- [x] **Milestone 4: Trek Staff Dashboard and Trek Operations (Completed)**
+  - Strict Trek Staff authorization enforcing `role == 'Trek Staff'` and `status == 'Active'`
+  - Absolute data isolation binding queries and operations to `trek.assigned_staff_id == current_user.id` (HTTP 403 on unassigned or foreign treks)
+  - Real-time database metrics dashboard (`GET /api/staff/dashboard`) with assigned trek highlights and specialization summary
+  - Assigned treks directory (`GET /api/staff/treks`, `GET /api/staff/treks/<id>`) with status, progress, and capacity metrics
+  - Capacity management (`PATCH /api/staff/treks/<id>/slots`) strictly preventing slot reduction below active confirmed bookings
+  - Booking availability toggle (`PATCH /api/staff/treks/<id>/status`) allowing Open/Closed states while rejecting administrative statuses and modifications to completed expeditions
+  - Unidirectional operational progress lifecycle state machine (`PATCH /api/staff/treks/<id>/progress`): `Not Started` -> `Started` -> `Ongoing` -> `Completed` with auto-closing of booking status upon completion
+  - Sanitized participant roster API (`GET /api/staff/treks/<id>/participants`) with status filtering, search, and zero exposure of user credentials
+  - Responsive Vue 3 + Bootstrap 5 Staff views (`StaffDashboardView.vue`, `StaffTreksView.vue`, `StaffTrekDetailsView.vue`, `StaffParticipantsView.vue`) and `StaffSidebar.vue`
+  - 108 automated unit tests passing across 12 test suites
+- [ ] **Milestone 5: Trekker Portal, Redis Caching & Celery Background Tasks**
+  - Trekker booking & self-service cancellation workflow
+  - Redis caching integration for high-traffic catalog queries
+  - Celery asynchronous notification pipeline (email alerts & departure reminders)
+  - Celery Beat scheduled jobs and monthly reporting
+- [ ] **Milestone 6: Verification, Testing & Final Documentation**
   - End-to-end integration testing and bug fixes
   - API documentation, setup instructions, and deployment readiness
 
@@ -332,7 +342,57 @@ The administrative frontend is implemented as a cohesive Single Page Application
 
 ---
 
-## 11. Repository Structure
+## 11. Milestone 4: Trek Staff Dashboard and Trek Operations
+
+### 11.1 Authorization & Strict Data Isolation
+All staff endpoints enforce strict role-based access control and tenant-level data isolation:
+- **RBAC Enforcement:** Access is granted strictly to authenticated users with role `'Trek Staff'` and active status `'Active'`. Incomplete profiles (missing associated `StaffProfile`) or inactive accounts receive HTTP 403 Forbidden.
+- **Ownership Binding:** The backend extracts the authenticated staff member's ID exclusively from the verified JWT identity (`g.current_user.id`). Never trusts staff IDs supplied by client payloads.
+- **Data Isolation:** All trek queries automatically filter by `Trek.assigned_staff_id == current_user.id`. Any direct attempt to inspect, operate, or view participants of a trek not assigned to the authenticated staff member immediately returns HTTP 403 Forbidden with `"You are not authorized to access this trek."`. Unassigned treks cannot be accessed by staff.
+
+### 11.2 Status Architecture Separation
+TMA strictly separates administrative booking availability from on-ground field execution:
+- **Booking Availability (`status`):**
+  - Allowed values: `'Pending'`, `'Approved'`, `'Open'`, `'Closed'`, `'Completed'`.
+  - Staff permissions: Staff can only toggle between `'Open'` (accepting bookings) and `'Closed'` (temporarily halting bookings).
+  - Restrictions: Staff cannot set administrative statuses (`'Pending'`, `'Approved'`). Completed treks cannot be reopened by staff.
+- **Operational Progress Lifecycle (`operational_progress` / `progress`):**
+  - Allowed stages: `'Not Started'`, `'Started'`, `'Ongoing'`, `'Completed'`.
+  - State machine rules:
+    - `'Not Started'` &rarr; `'Started'`, `'Ongoing'`
+    - `'Started'` &rarr; `'Ongoing'`, `'Completed'`
+    - `'Ongoing'` &rarr; `'Completed'`
+    - `'Completed'` &rarr; Terminal stage (no further transitions permitted)
+  - Backwards transitions (e.g. `'Ongoing'` &rarr; `'Not Started'`) are rejected with HTTP 400 Bad Request.
+  - Automatic side-effect: Transitioning to `'Completed'` automatically closes booking availability (`status = 'Closed'`).
+
+### 11.3 Trek Staff REST API Endpoints
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/staff/dashboard` | Trek Staff | Aggregate live metrics: total assigned treks, open/closed counts, ongoing/completed counts, active participants, and assigned trek summaries |
+| `GET` | `/api/staff/treks` | Trek Staff | Paginated list of assigned treks with search, status filter, progress filter, and capacity tracking |
+| `GET` | `/api/staff/treks/<id>` | Trek Staff | Detailed overview of an assigned trek with capacity and participant counts (returns 403 if unassigned) |
+| `PATCH` | `/api/staff/treks/<id>/slots` | Trek Staff | Update available slots; strictly rejects reducing capacity below current active confirmed bookings (`booking_status == 'Booked'`) |
+| `PATCH` | `/api/staff/treks/<id>/status` | Trek Staff | Toggle booking availability between `'Open'` and `'Closed'` only; rejects administrative statuses and completed trek edits |
+| `PATCH` | `/api/staff/treks/<id>/progress` | Trek Staff | Advance operational lifecycle following unidirectional state machine rules; auto-closes booking status upon completion |
+| `GET` | `/api/staff/treks/<id>/participants` | Trek Staff | Participant roster with active vs cancelled counts, status filtering, and zero exposure of user passwords |
+
+### 11.4 Participant Privacy & Safety Guards
+- **Zero Credential Leaks:** Queries and responses for participant rosters explicitly exclude `password_hash` and sensitive auth tokens.
+- **Active vs Cancelled Distinction:** Cleanly separates active confirmed reservations (`booking_status == 'Booked'`) from cancelled reservations (`booking_status == 'Cancelled'`), providing accurate headcounts for field logistics.
+
+### 11.5 Frontend Staff Portal (Vue 3 + Bootstrap 5)
+The Trek Staff interface includes 4 dedicated views and navigation components:
+1. **`StaffSidebar.vue`:** Staff navigation sidebar highlighting active routes and displaying staff profile summary.
+2. **`StaffDashboardView.vue` (`/staff/dashboard`):** Real-time metric cards (assigned treks, open for booking, active participants, completed treks), staff credentials summary, and active expedition table with direct operational links.
+3. **`StaffTreksView.vue` (`/staff/treks`):** Comprehensive table of assigned expeditions with live search, status and progress filters, visual capacity bars, and quick slot editing modal.
+4. **`StaffTrekDetailsView.vue` (`/staff/treks/:id`):** Mission control view featuring an interactive visual stepper for operational progress transitions, one-click booking status toggle, capacity adjustment form, and direct link to participant rosters.
+5. **`StaffParticipantsView.vue` (`/staff/treks/:id/participants`):** Participant roster view featuring active/cancelled breakdown cards, search toolbar, status filter, and privacy-shielded contact cards.
+
+---
+
+## 12. Repository Structure
 
 ```text
 trekking-management-app/
@@ -352,7 +412,7 @@ trekking-management-app/
 │   │   ├── models/
 │   │   │   ├── __init__.py        # Models export
 │   │   │   ├── user.py            # User model with role validation & serialization
-│   │   │   ├── trek.py            # Trek model with capacity & date validation
+│   │   │   ├── trek.py            # Trek model with capacity, progress & date validation
 │   │   │   ├── booking.py         # Booking model with partial unique index
 │   │   │   ├── staff_profile.py   # StaffProfile model for Trek Staff users
 │   │   │   └── token_blocklist.py # TokenBlocklist model for revoked JWTs
@@ -365,7 +425,7 @@ trekking-management-app/
 │   │   │   ├── admin_users.py     # /api/admin/users trekker management routes
 │   │   │   ├── admin_bookings.py  # /api/admin/bookings read-only audit routes
 │   │   │   ├── admin_reports.py   # /api/admin/reports aggregate analytics routes
-│   │   │   ├── staff.py           # /api/staff routes (dashboard)
+│   │   │   ├── staff.py           # /api/staff routes (dashboard, treks, operations, participants)
 │   │   │   └── trekker.py         # /api/trekker routes (dashboard)
 │   │   └── utils/
 │   │       ├── __init__.py
@@ -386,7 +446,11 @@ trekking-management-app/
 │       ├── test_admin_assignments.py  # 3 automated tests for staff allocation & reassignments
 │       ├── test_admin_bookings.py     # 3 automated tests for read-only booking history
 │       ├── test_admin_reports.py      # 3 automated tests for database aggregates & rankings
-│       └── test_admin_auth.py         # 3 automated tests for 401/403 authorization enforcement
+│       ├── test_admin_auth.py         # 3 automated tests for 401/403 authorization enforcement
+│       ├── test_staff_dashboard.py    # 5 automated tests for staff metrics, isolation & RBAC
+│       ├── test_staff_treks.py        # 7 automated tests for assigned trek listing & 403 isolation
+│       ├── test_staff_operations.py   # 11 automated tests for slots, status, and progress state machine
+│       └── test_staff_participants.py  # 5 automated tests for roster retrieval & privacy
 └── frontend/
     ├── package.json               # Vue 3, Vue Router, Bootstrap, Axios
     ├── vite.config.js             # Vite config with backend API proxy
@@ -402,6 +466,7 @@ trekking-management-app/
         ├── components/
         │   ├── Navbar.vue             # Responsive Bootstrap navigation bar
         │   ├── AdminSidebar.vue       # Administrative navigation sidebar
+        │   ├── StaffSidebar.vue       # Trek Staff navigation sidebar
         │   ├── StatCard.vue           # Reusable metric card component
         │   ├── Pagination.vue         # Reusable table pagination component
         │   └── ConfirmationModal.vue  # Reusable action confirmation dialog
@@ -418,14 +483,17 @@ trekking-management-app/
             ├── ManageUsersView.vue    # Trekker account management view
             ├── ManageBookingsView.vue # Read-only booking audit view
             ├── ReportsView.vue        # Administrative analytics view
-            ├── StaffDashboardView.vue # Trek Staff portal placeholder
+            ├── StaffDashboardView.vue # Trek Staff metrics dashboard view
+            ├── StaffTreksView.vue     # Trek Staff assigned expeditions list view
+            ├── StaffTrekDetailsView.vue # Trek Staff operations & lifecycle view
+            ├── StaffParticipantsView.vue # Trek Staff participant roster view
             ├── TrekkerDashboardView.vue # Trekker portal placeholder
             └── UnauthorizedView.vue   # HTTP 403 Access Denied view
 ```
 
 ---
 
-## 12. Instructions to Run and Verify (Windows PowerShell)
+## 13. Instructions to Run and Verify (Windows PowerShell)
 
 ### Step 1: Backend Setup & Automated Tests
 
@@ -439,7 +507,7 @@ cd "D:\iitm'\26t3 sep\MAD2\Trekking-Management-Application"
 # Install backend dependencies (if needed)
 pip install -r backend/requirements.txt
 
-# Run all 80 automated unit tests (Milestone 1, 2, and 3)
+# Run all 108 automated unit tests (Milestone 1, 2, 3, and 4)
 python -m unittest discover backend/tests -v
 ```
 
@@ -481,6 +549,6 @@ Open your browser at `http://localhost:5173` and log in with your Admin credenti
 
 ---
 
-## 13. License & Academic Integrity
+## 14. License & Academic Integrity
 
 This project is submitted as coursework for the **Modern Application Development II (MAD-II)** course at **IIT Madras**. All work conforms to academic integrity guidelines established by the program.

@@ -12,6 +12,13 @@ class Trek(db.Model):
     
     ALLOWED_DIFFICULTIES = {"Easy", "Moderate", "Hard"}
     ALLOWED_STATUSES = {"Pending", "Approved", "Open", "Closed", "Completed"}
+    ALLOWED_PROGRESS_STAGES = {"Not Started", "Started", "Ongoing", "Completed"}
+    ALLOWED_PROGRESS_TRANSITIONS = {
+        "Not Started": {"Started", "Ongoing"},
+        "Started": {"Ongoing", "Completed"},
+        "Ongoing": {"Completed"},
+        "Completed": set()
+    }
     
     __table_args__ = (
         db.CheckConstraint(
@@ -21,6 +28,10 @@ class Trek(db.Model):
         db.CheckConstraint(
             "status IN ('Pending', 'Approved', 'Open', 'Closed', 'Completed')",
             name="ck_treks_status"
+        ),
+        db.CheckConstraint(
+            "operational_progress IN ('Not Started', 'Started', 'Ongoing', 'Completed')",
+            name="ck_treks_operational_progress"
         ),
         db.CheckConstraint(
             "duration_days > 0",
@@ -50,6 +61,8 @@ class Trek(db.Model):
         nullable=True
     )
     status = db.Column(db.String(20), nullable=False, default="Pending")
+    operational_progress = db.Column(db.String(20), nullable=False, default="Not Started")
+    progress = synonym("operational_progress")
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date, nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -90,6 +103,15 @@ class Trek(db.Model):
         if value not in self.ALLOWED_STATUSES:
             raise ValueError(
                 f"Invalid status: {value}. Allowed values: {', '.join(sorted(self.ALLOWED_STATUSES))}"
+            )
+        return value
+
+    @validates("operational_progress")
+    def validate_operational_progress(self, key, value):
+        """Validate operational progress."""
+        if value not in self.ALLOWED_PROGRESS_STAGES:
+            raise ValueError(
+                f"Invalid operational progress: {value}. Allowed values: {', '.join(sorted(self.ALLOWED_PROGRESS_STAGES))}"
             )
         return value
 
@@ -159,6 +181,8 @@ class Trek(db.Model):
             "assigned_staff_id": self.assigned_staff_id,
             "assigned_staff_name": assigned_name,
             "status": self.status,
+            "operational_progress": self.operational_progress,
+            "progress": self.operational_progress,
             "start_date": self.start_date.isoformat() if self.start_date else None,
             "end_date": self.end_date.isoformat() if self.end_date else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,

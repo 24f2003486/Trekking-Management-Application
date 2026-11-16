@@ -117,6 +117,15 @@ def create_app(config_name: str = None) -> Flask:
     def init_db_command():
         """Initialize and create all database tables programmatically."""
         db.create_all()
+        # Safe schema migration for operational_progress if table pre-existed
+        with db.engine.connect() as conn:
+            from sqlalchemy import inspect, text
+            inspector = inspect(conn)
+            if "treks" in inspector.get_table_names():
+                cols = [c["name"] for c in inspector.get_columns("treks")]
+                if "operational_progress" not in cols:
+                    conn.execute(text("ALTER TABLE treks ADD COLUMN operational_progress VARCHAR(20) NOT NULL DEFAULT 'Not Started'"))
+                    conn.commit()
         click.echo("Database initialized successfully. All tables created.")
 
     return app
