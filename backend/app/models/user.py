@@ -113,6 +113,19 @@ class User(db.Model):
     def is_trekker(self) -> bool:
         return self.role == "Trekker"
 
+    def to_dict(self) -> dict:
+        """Sanitized dictionary representation of user (no password_hash)."""
+        return {
+            "id": self.id,
+            "full_name": self.full_name,
+            "email": self.email,
+            "role": self.role,
+            "status": self.status,
+            "contact_number": self.contact_number,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
     def __repr__(self) -> str:
         return f"<User id={self.id} email='{self.email}' role='{self.role}' status='{self.status}'>"
 

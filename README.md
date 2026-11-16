@@ -2,7 +2,7 @@
 
 **Course:** Modern Application Development II (MAD-II)  
 **Institution:** Indian Institute of Technology Madras (IIT Madras)  
-**Project Status:** Milestone 1 Completed (Database Models & Schema Setup)
+**Project Status:** Milestone 2 Completed (Authentication & Role-Based Access Control)
 
 ---
 
@@ -13,7 +13,7 @@ The **Trekking Management Application V2 (TMA)** is a multi-user, web-based plat
 By integrating a responsive frontend with a scalable RESTful backend, TMA aims to provide end-to-end expedition scheduling, participant management, and real-time activity tracking.
 
 > **Project Status Disclaimer:**  
-> This repository currently includes the **Milestone 0 repository setup** and **Milestone 1 database models and schema**. REST API endpoints, user authentication (JWT/session), Vue.js frontend dashboards, Redis caching, and Celery background jobs are scheduled for subsequent milestones and are **not yet implemented**.
+> This repository currently includes **Milestone 0 (Project Setup)**, **Milestone 1 (Database Models & Schema)**, and **Milestone 2 (Authentication & Role-Based Access Control)**. Core expedition creation, booking flows, Redis caching, and Celery background workers are scheduled for subsequent milestones and are **not yet implemented**.
 
 ---
 
@@ -58,11 +58,12 @@ The system is architected around three distinct user roles:
 In strict compliance with the **MAD-II** project guidelines, the application utilizes the following stack:
 
 - **Backend:** Python [Flask](https://flask.palletsprojects.com/) (RESTful API architecture)
-- **Frontend:** [Vue.js](https://vuejs.org/) (Single Page Application architecture)
-- **UI Styling:** [Bootstrap](https://getbootstrap.com/) (Responsive, component-driven CSS framework)
+- **Authentication:** [Flask-JWT-Extended](https://flask-jwt-extended.readthedocs.io/) (JWT tokens with SQLite blocklist revocation)
+- **Frontend:** [Vue.js 3](https://vuejs.org/) + [Vite](https://vitejs.dev/) (Single Page Application architecture)
+- **UI Styling:** [Bootstrap 5](https://getbootstrap.com/) (Responsive, component-driven CSS framework)
 - **Database:** [SQLite](https://www.sqlite.org/) (Relational database managed via SQLAlchemy ORM)
-- **Caching:** [Redis](https://redis.io/) (In-memory data store for caching high-traffic endpoints)
-- **Background Jobs & Scheduling:** [Celery](https://docs.celeryq.dev/) with Redis as the message broker and result backend (handles async email dispatch and recurring batch reports)
+- **Caching:** [Redis](https://redis.io/) (In-memory data store for caching high-traffic endpoints — Planned: Milestone 4)
+- **Background Jobs & Scheduling:** [Celery](https://docs.celeryq.dev/) with Redis broker (Planned: Milestone 4)
 
 ---
 
@@ -70,13 +71,13 @@ In strict compliance with the **MAD-II** project guidelines, the application uti
 
 The planned functionalities for subsequent development stages include:
 
-1. **Authentication & Authorization:** Secure session/token-based login and signup with role-based route protection.
-2. **Trek Catalog & Discovery:** Route filtering, keyword search, difficulty rating indicators, and interactive itinerary views.
-3. **Booking & Slot Management:** Batch capacity limits, booking confirmations, cancellation workflows, and real-time slot tracking.
-4. **Staff Allocation & Field Checkpoints:** Assignment workflow linking trek leaders to specific batches, along with checkpoint status tracking.
-5. **Asynchronous Notification System:** Automated booking confirmation emails, trek departure reminders, and alerts triggered by Celery.
-6. **Scheduled Reporting (Celery Beat):** Monthly summary reports generated automatically and distributed to administrators.
-7. **Performance Caching:** Redis caching applied to static and semi-static trek catalog queries to minimize database load.
+1. **Authentication & Authorization (Completed):** Secure JWT login, Trekker registration, token blocklist logout, and role-based route protection.
+2. **Trek Catalog & Discovery (Planned M3):** Route filtering, keyword search, difficulty rating indicators, and interactive itinerary views.
+3. **Booking & Slot Management (Planned M3):** Batch capacity limits, booking confirmations, cancellation workflows, and real-time slot tracking.
+4. **Staff Allocation & Field Checkpoints (Planned M3):** Assignment workflow linking trek leaders to specific batches, along with checkpoint status tracking.
+5. **Asynchronous Notification System (Planned M4):** Automated booking confirmation emails, trek departure reminders, and alerts triggered by Celery.
+6. **Scheduled Reporting (Celery Beat) (Planned M4):** Monthly summary reports generated automatically and distributed to administrators.
+7. **Performance Caching (Planned M4):** Redis caching applied to static and semi-static trek catalog queries to minimize database load.
 
 ---
 
@@ -88,17 +89,23 @@ Development is organized in incremental milestones:
   - Initialized Git version control on branch `main`
   - Established `.gitignore` rules for Python, Flask, SQLite, Redis, Celery, and Vue/Node environments
   - Prepared repository for GitHub hosting
-- [x] **Milestone 1: Database Models & Schema Setup (Completed)**
+- [x] **Milestone 1: Database Models & Schema Setup**
   - Application factory pattern (`create_app`) with SQLite configuration
   - SQLite foreign key constraint enforcement via connection hooks
   - Database models: `User`, `Trek`, `Booking`, `StaffProfile`
   - Automated database initialization via `flask init-db` CLI
   - Secure programmatic Admin account provisioning script (`backend/scripts/create_admin.py`)
-  - Automated unit test suite using isolated in-memory SQLite database (`backend/tests/test_models.py`)
-- [ ] **Milestone 2: Authentication & Frontend Foundation**
-  - Role-based authentication backend
-  - Vue.js project setup with Bootstrap styling and client-side routing
-  - Login, registration, and role-based dashboard scaffolding
+  - Automated unit test suite using isolated in-memory SQLite database
+- [x] **Milestone 2: Authentication & Role-Based Access Control (Completed)**
+  - JWT-based authentication using `Flask-JWT-Extended` with configurable expiration
+  - Backend RBAC decorators (`@role_required`) enforcing active account status and database role checks
+  - Trekker self-registration with role-escalation prevention (`POST /api/auth/register`)
+  - Multi-role login endpoint (`POST /api/auth/login`) with sanitized user payloads (no `password_hash` leaks)
+  - Profile retrieval (`GET /api/auth/me`) and secure logout with SQLite token blocklist (`TokenBlocklist`)
+  - Role-protected dashboard placeholder APIs for Admin, Trek Staff, and Trekker
+  - Vue 3 + Vite frontend with Bootstrap 5 styling and Vue Router
+  - Client-side navigation guards with automated role-based redirects (`/admin/dashboard`, `/staff/dashboard`, `/trekker/dashboard`)
+  - 46 comprehensive automated unit tests covering models, auth, RBAC, and logout
 - [ ] **Milestone 3: Booking Engine & Staff Portal**
   - Trekker booking workflow with capacity enforcement
   - Staff assignment dashboard and participant tracking
@@ -129,9 +136,8 @@ All database schema creation is completely **programmatic**; manual database mod
 - **`contact_number`** (`String(20)`, Optional)
 - **`role`** (`String(20)`, Required): Allowed values: `'Admin'`, `'Trek Staff'`, `'Trekker'`
 - **`status`** (`String(20)`, Default `'Active'`): Allowed values: `'Active'`, `'Inactive'`, `'Blacklisted'`
-- **`created_at`** (`DateTime`, Default `utcnow`)
-- **`updated_at`** (`DateTime`, Default `utcnow`, OnUpdate `utcnow`)
-- **Methods:** `set_password(password)`, `check_password(password)`
+- **`created_at`**, **`updated_at`** (`DateTime`)
+- **Methods:** `set_password(password)`, `check_password(password)`, `to_dict()`
 - **Relationships:**
   - `staff_profile`: One-to-One with `StaffProfile` (`back_populates="user"`, `uselist=False`)
   - `assigned_treks`: One-to-Many with `Trek` as assigned staff
@@ -142,15 +148,12 @@ All database schema creation is completely **programmatic**; manual database mod
 - **`trek_name`** (`String(100)`, Required)
 - **`location`** (`String(100)`, Required)
 - **`description`** (`Text`, Optional)
-- **`difficulty`** (`String(20)`, Required): Allowed values: `'Easy'`, `'Moderate'`, `'Hard'`
+- **`difficulty`** (`String(20)`, Required): `'Easy'`, `'Moderate'`, `'Hard'`
 - **`duration_days`** (`Integer`, Required): Strictly positive (> 0)
 - **`available_slots`** (`Integer`, Required): Non-negative (>= 0)
 - **`assigned_staff_id`** (`Integer`, Foreign Key `users.id`, Nullable, `ondelete='SET NULL'`)
-- **`status`** (`String(20)`, Required, Default `'Pending'`): Allowed values: `'Pending'`, `'Approved'`, `'Open'`, `'Closed'`, `'Completed'`
-- **`start_date`** (`Date`, Required)
-- **`end_date`** (`Date`, Required): Validated `end_date >= start_date`
-- **`created_at`** (`DateTime`, Default `utcnow`)
-- **`updated_at`** (`DateTime`, Default `utcnow`, OnUpdate `utcnow`)
+- **`status`** (`String(20)`, Required, Default `'Pending'`): `'Pending'`, `'Approved'`, `'Open'`, `'Closed'`, `'Completed'`
+- **`start_date`**, **`end_date`** (`Date`, Required): Validated `end_date >= start_date`
 - **Relationships:**
   - `assigned_staff`: Relationship to `User` (validated to have role `'Trek Staff'`)
   - `bookings`: One-to-Many with `Booking`
@@ -159,16 +162,11 @@ All database schema creation is completely **programmatic**; manual database mod
 - **`id`** (`Integer`, Primary Key, Autoincrement)
 - **`user_id`** (`Integer`, Foreign Key `users.id`, Required, `ondelete='RESTRICT'`)
 - **`trek_id`** (`Integer`, Foreign Key `treks.id`, Required, `ondelete='RESTRICT'`)
-- **`booking_date`** (`DateTime`, Required, Default `utcnow`)
-- **`booking_status`** (`String(20)`, Required, Default `'Booked'`): Allowed values: `'Booked'`, `'Cancelled'`, `'Completed'`
-- **`payment_status`** (`String(20)`, Optional, Default `'Pending'`): Allowed values: `'Pending'`, `'Paid'`, `'Failed'`, `'Refunded'`
-- **`created_at`** (`DateTime`, Default `utcnow`)
-- **`updated_at`** (`DateTime`, Default `utcnow`, OnUpdate `utcnow`)
+- **`booking_date`** (`DateTime`, Default `utcnow`)
+- **`booking_status`** (`String(20)`, Required, Default `'Booked'`): `'Booked'`, `'Cancelled'`, `'Completed'`
+- **`payment_status`** (`String(20)`, Optional, Default `'Pending'`): `'Pending'`, `'Paid'`, `'Failed'`, `'Refunded'`
 - **Constraints & Indexes:**
   - Partial unique index `uq_active_user_trek_booking` on `(user_id, trek_id)` where `booking_status = 'Booked'` to prevent duplicate active reservations.
-- **Relationships:**
-  - `user`: Belongs to `User`
-  - `trek`: Belongs to `Trek`
 
 #### 4. Staff Profile Model (`staff_profiles`)
 - **`id`** (`Integer`, Primary Key, Autoincrement)
@@ -176,116 +174,215 @@ All database schema creation is completely **programmatic**; manual database mod
 - **`specialization`** (`String(100)`, Optional)
 - **`experience_years`** (`Integer`, Default `0`): Validated non-negative (>= 0)
 - **`emergency_contact`** (`String(20)`, Optional)
-- **`created_at`** (`DateTime`, Default `utcnow`)
-- **`updated_at`** (`DateTime`, Default `utcnow`, OnUpdate `utcnow`)
 - **Validation:** Only users with role `'Trek Staff'` can hold a staff profile.
-- **Relationships:**
-  - `user`: One-to-One with `User`
+
+#### 5. Token Blocklist Model (`token_blocklist`)
+- **`id`** (`Integer`, Primary Key, Autoincrement)
+- **`jti`** (`String(36)`, Required, Unique, Indexed): JWT unique identifier
+- **`created_at`** (`DateTime`, Default `utcnow`)
 
 ---
 
-### 8.3 Entity Relationships Summary
+## 9. Milestone 2: Authentication & Role-Based Access Control Specification
 
-| Relationship | Cardinality | Parent Table | Child Table | Foreign Key | Cascade / Delete Rule |
-| :--- | :---: | :--- | :--- | :--- | :--- |
-| **User ↔ Staff Profile** | 1 : 1 | `users` | `staff_profiles` | `staff_profiles.user_id` | `CASCADE` (profile deleted if staff account deleted) |
-| **Trek Staff ↔ Trek** | 1 : N | `users` | `treks` | `treks.assigned_staff_id` | `SET NULL` (trek preserved if staff unassigned) |
-| **User ↔ Booking** | 1 : N | `users` | `bookings` | `bookings.user_id` | `RESTRICT` (booking history strictly preserved) |
-| **Trek ↔ Booking** | 1 : N | `treks` | `bookings` | `bookings.trek_id` | `RESTRICT` (booking history strictly preserved) |
+### 9.1 Authentication Architecture
+- **JWT Framework:** `Flask-JWT-Extended` with RFC 7518-compliant HMAC keys.
+- **Token Type:** Bearer Access Tokens issued via the `Authorization: Bearer <token>` header.
+- **Revocation / Logout Strategy:** Database-backed token blocklist table (`token_blocklist`). On logout, the token's unique identifier (`jti`) is persisted. The `@jwt.token_in_blocklist_loader` checks incoming requests against SQLite, guaranteeing revoked tokens cannot be reused.
+- **Password Security:** Salted hashes generated via `werkzeug.security.generate_password_hash` (`scrypt`/`pbkdf2:sha256`). Plaintext passwords and `password_hash` values are never stored or leaked.
+
+### 9.2 API Endpoint Reference
+
+| Method | Endpoint | Access Level | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/auth/register` | Public | Trekker self-registration (role strictly hardcoded to `Trekker`) |
+| `POST` | `/api/auth/login` | Public | Authenticates credentials and returns JWT access token + sanitized user object |
+| `GET` | `/api/auth/me` | Authenticated | Returns currently authenticated user profile |
+| `POST` | `/api/auth/logout` | Authenticated | Revokes current JWT by adding its `jti` to `token_blocklist` |
+| `GET` | `/api/admin/dashboard` | Role: Admin | Admin portal placeholder endpoint |
+| `GET` | `/api/staff/dashboard` | Role: Trek Staff | Trek Staff portal placeholder endpoint |
+| `GET` | `/api/trekker/dashboard` | Role: Trekker | Trekker portal placeholder endpoint |
+
+### 9.3 Standard Response Format
+
+All API endpoints return standardized JSON payloads:
+
+**Success Response (HTTP 200 / 201):**
+```json
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "access_token": "eyJhbGciOi...",
+    "user": {
+      "id": 1,
+      "full_name": "System Administrator",
+      "email": "admin@trekkingapp.local",
+      "role": "Admin",
+      "status": "Active"
+    }
+  }
+}
+```
+
+**Error Response (HTTP 400 / 401 / 403 / 409):**
+```json
+{
+  "success": false,
+  "message": "Invalid email or password.",
+  "errors": {}
+}
+```
+
+### 9.4 Role-Based Access Control (RBAC) & Route Protection
+
+Backend enforcement is implemented via `@role_required(*allowed_roles)`:
+1. Validates JWT signature, structure, and expiration.
+2. Checks token against the SQLite `token_blocklist`.
+3. Retrieves user record from the database (never trusts unverified claims or frontend role data).
+4. Verifies that `user.status == 'Active'` (rejects `Inactive` or `Blacklisted` with HTTP 403).
+5. Verifies that `user.role` matches the route requirements (rejects unauthorized roles with HTTP 403).
+
+### 9.5 Frontend Architecture & Pages (Vue 3 + Vite + Bootstrap)
+
+- **Login Page (`/login`):** Built following web standards (`autofill-sign-in-form`), with semantic markup, proper input types (`type="email"` with `autocomplete="username"`), password visibility toggle, loading indicators, and field-level validation feedback.
+- **Trekker Registration Page (`/register`):** Built following web standards (`autofill-sign-up-form`), with single-name input (`autocomplete="name"`), password confirmation verification, and no role selector (strictly registers Trekkers).
+- **Admin Dashboard (`/admin/dashboard`):** Role-guarded dashboard placeholder displaying authenticated admin details and confirming backend authorization via `/api/admin/dashboard`.
+- **Trek Staff Dashboard (`/staff/dashboard`):** Role-guarded dashboard placeholder displaying staff profile details and confirming backend authorization via `/api/staff/dashboard`.
+- **Trekker Dashboard (`/trekker/dashboard`):** Role-guarded dashboard placeholder displaying trekker details and confirming backend authorization via `/api/trekker/dashboard`.
+- **Unauthorized Page (`/unauthorized`):** Explanatory access denied page with automated redirect to the user's authorized role dashboard.
+
+**Automated Role-Based Navigation:**
+- `Admin` &rarr; `/admin/dashboard`
+- `Trek Staff` &rarr; `/staff/dashboard`
+- `Trekker` &rarr; `/trekker/dashboard`
+- Unauthenticated &rarr; `/login?redirect=...`
 
 ---
 
-### 8.4 Setup and Verification Instructions (Windows PowerShell)
-
-#### Step 1: Create and Activate Virtual Environment
-```powershell
-# Navigate to project root
-cd "D:\iitm'\26t3 sep\MAD2\Trekking-Management-Application"
-
-# Create virtual environment
-python -m venv .venv
-
-# Activate virtual environment
-.\.venv\Scripts\Activate.ps1
-```
-
-#### Step 2: Install Dependencies
-```powershell
-pip install -r backend/requirements.txt
-```
-
-#### Step 3: Initialize Database Schema Programmatically
-```powershell
-$env:FLASK_APP = "backend/run.py"
-flask init-db
-```
-*Output: `Database initialized successfully. All tables created.`*
-
-#### Step 4: Provision Initial Admin Account
-```powershell
-# Set initial admin password in environment variable
-$env:ADMIN_INITIAL_PASSWORD = "YourSecurePassword123!"
-
-# Execute admin creation script
-python backend/scripts/create_admin.py
-```
-*Output: `Success: Admin account created successfully.`*  
-*(Rerunning the command will confirm duplicate prevention: `Notice: Admin account already exists...`)*
-
-#### Step 5: Run Automated Unit Tests
-```powershell
-python -m unittest discover backend/tests
-```
-*All 16 test cases run against an isolated in-memory SQLite database.*
-
-#### Step 6: Inspect Created Tables and Admin Record
-```powershell
-python -c "
-import sqlite3
-conn = sqlite3.connect('backend/instance/tma.db')
-cursor = conn.cursor()
-cursor.execute('SELECT name FROM sqlite_master WHERE type=\"table\";')
-print('Tables:', cursor.fetchall())
-cursor.execute('SELECT id, full_name, email, role, status FROM users;')
-print('Users:', cursor.fetchall())
-conn.close()
-"
-```
-
----
-
-## 9. Repository Structure
+## 10. Repository Structure
 
 ```text
 trekking-management-app/
 ├── .gitignore
 ├── README.md
-├── .venv/                         # Virtual environment (git-ignored)
-└── backend/
-    ├── .env.example               # Environment variables template
-    ├── requirements.txt           # Minimal backend dependencies
-    ├── run.py                     # Application entry point & CLI context
-    ├── instance/                  # SQLite DB storage directory (git-ignored)
-    │   └── tma.db
-    ├── app/
-    │   ├── __init__.py            # Flask application factory (create_app)
-    │   ├── config.py              # Environment configurations (Base, Dev, Test)
-    │   ├── extensions.py          # SQLAlchemy extension instance
-    │   └── models/
-    │       ├── __init__.py        # Models export
-    │       ├── user.py            # User model
-    │       ├── trek.py            # Trek model
-    │       ├── booking.py         # Booking model
-    │       └── staff_profile.py   # StaffProfile model
-    ├── scripts/
-    │   └── create_admin.py        # Programmatic admin account provisioning
-    └── tests/
-        ├── __init__.py
-        └── test_models.py         # 16 automated tests for schema & constraints
+├── .venv/                         # Python virtual environment (git-ignored)
+├── backend/
+│   ├── .env.example               # Environment variables template
+│   ├── requirements.txt           # Minimal backend dependencies
+│   ├── run.py                     # Application entry point & CLI context
+│   ├── instance/                  # SQLite DB storage directory (git-ignored)
+│   │   └── tma.db
+│   ├── app/
+│   │   ├── __init__.py            # Application factory, extensions, JWT callbacks, blueprints
+│   │   ├── config.py              # Environment configurations (Base, Dev, Test)
+│   │   ├── extensions.py          # SQLAlchemy, JWTManager, CORS instances
+│   │   ├── models/
+│   │   │   ├── __init__.py        # Models export
+│   │   │   ├── user.py            # User model
+│   │   │   ├── trek.py            # Trek model
+│   │   │   ├── booking.py         # Booking model
+│   │   │   ├── staff_profile.py   # StaffProfile model
+│   │   │   └── token_blocklist.py # TokenBlocklist model for revoked JWTs
+│   │   ├── routes/
+│   │   │   ├── __init__.py        # Blueprints export
+│   │   │   ├── auth.py            # /api/auth routes (register, login, me, logout)
+│   │   │   ├── admin.py           # /api/admin routes (dashboard)
+│   │   │   ├── staff.py           # /api/staff routes (dashboard)
+│   │   │   └── trekker.py         # /api/trekker routes (dashboard)
+│   │   └── utils/
+│   │       ├── __init__.py
+│   │       ├── decorators.py      # @role_required, @active_user_required
+│   │       └── responses.py       # success_response, error_response helpers
+│   ├── scripts/
+│   │   └── create_admin.py        # Programmatic admin account provisioning
+│   └── tests/
+│       ├── __init__.py
+│       ├── test_models.py         # 20 automated tests for schema & constraints
+│       ├── test_auth.py           # 15 automated tests for registration, login & profile
+│       ├── test_rbac.py           # 9 automated tests for RBAC & token expiration
+│       └── test_logout.py         # 2 automated tests for logout & token blocklist
+└── frontend/
+    ├── package.json               # Vue 3, Vue Router, Bootstrap, Axios
+    ├── vite.config.js             # Vite config with backend API proxy
+    ├── index.html                 # HTML entry point
+    └── src/
+        ├── main.js                # App bootstrapping & Bootstrap imports
+        ├── App.vue                # Root component layout & footer
+        ├── router/
+        │   └── index.js           # Vue Router with role-based navigation guards
+        ├── services/
+        │   ├── api.js             # Axios instance with JWT request/response interceptors
+        │   └── auth.js            # Centralized authentication state management
+        ├── components/
+        │   └── Navbar.vue         # Responsive Bootstrap navigation bar
+        └── views/
+            ├── LoginView.vue      # Sign-in page
+            ├── RegisterView.vue   # Trekker registration page
+            ├── AdminDashboardView.vue    # Admin portal placeholder
+            ├── StaffDashboardView.vue    # Trek Staff portal placeholder
+            ├── TrekkerDashboardView.vue  # Trekker portal placeholder
+            └── UnauthorizedView.vue      # HTTP 403 Access Denied view
 ```
 
 ---
 
-## 10. License & Academic Integrity
+## 11. Instructions to Run and Verify (Windows PowerShell)
+
+### Step 1: Backend Setup & Automated Tests
+
+```powershell
+# Navigate to project root
+cd "D:\iitm'\26t3 sep\MAD2\Trekking-Management-Application"
+
+# Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# Install backend dependencies
+pip install -r backend/requirements.txt
+
+# Run all 46 automated unit tests
+python -m unittest discover backend/tests -v
+```
+
+### Step 2: Initialize Database and Provision Admin Account
+
+```powershell
+# Set Flask app entry point and initialize database
+$env:FLASK_APP = "backend/run.py"
+flask init-db
+
+# Provision initial Admin account
+$env:ADMIN_INITIAL_PASSWORD = "YourSecurePassword123!"
+python backend/scripts/create_admin.py
+```
+
+### Step 3: Run the Flask Backend Server
+
+```powershell
+# Start Flask development server on port 5000
+python backend/run.py
+```
+
+### Step 4: Run the Vue Frontend Server
+
+In a second PowerShell terminal:
+
+```powershell
+# Navigate to frontend directory
+cd "D:\iitm'\26t3 sep\MAD2\Trekking-Management-Application\frontend"
+
+# Install frontend dependencies (if not already installed)
+npm install
+
+# Start Vite development server on port 5173
+npm run dev
+```
+
+Open your browser at `http://localhost:5173` to interact with the application.
+
+---
+
+## 12. License & Academic Integrity
 
 This project is submitted as coursework for the **Modern Application Development II (MAD-II)** course at **IIT Madras**. All work conforms to academic integrity guidelines established by the program.
