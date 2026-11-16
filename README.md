@@ -141,3 +141,4 @@ trekking-management-app/
 ## 9. License & Academic Integrity
 
 This project is submitted as coursework for the **Modern Application Development II (MAD-II)** course at **IIT Madras**. All work conforms to academic integrity guidelines established by the program.
+
