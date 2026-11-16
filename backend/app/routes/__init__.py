@@ -8,6 +8,7 @@ from backend.app.routes.admin_bookings import admin_bookings_bp
 from backend.app.routes.admin_reports import admin_reports_bp
 from backend.app.routes.staff import staff_bp
 from backend.app.routes.trekker import trekker_bp
+from backend.app.routes.notifications import notifications_bp
 
 __all__ = [
     "auth_bp",
@@ -19,4 +20,5 @@ __all__ = [
     "admin_reports_bp",
     "staff_bp",
     "trekker_bp",
+    "notifications_bp",
 ]

@@ -13,7 +13,17 @@ for p in (PROJECT_ROOT, BACKEND_DIR):
 
 from backend.app import create_app
 from backend.app.extensions import db
-from backend.app.models import User, Trek, Booking, StaffProfile, TokenBlocklist
+from backend.app.models import (
+    User,
+    Trek,
+    Booking,
+    StaffProfile,
+    TokenBlocklist,
+    Notification,
+    ReminderLog,
+    MonthlyReport,
+    ExportJob,
+)
 
 app = create_app(os.environ.get("FLASK_CONFIG", "development"))
 
@@ -28,6 +38,10 @@ def make_shell_context():
         "Booking": Booking,
         "StaffProfile": StaffProfile,
         "TokenBlocklist": TokenBlocklist,
+        "Notification": Notification,
+        "ReminderLog": ReminderLog,
+        "MonthlyReport": MonthlyReport,
+        "ExportJob": ExportJob,
     }
 
 

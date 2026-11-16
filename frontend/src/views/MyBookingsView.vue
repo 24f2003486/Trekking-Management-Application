@@ -9,7 +9,10 @@
           <h2 class="fw-bold mb-1">My Expedition Bookings</h2>
           <p class="text-muted mb-0">Track all your registered mountain treks, reservation statuses, and expedition history.</p>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap">
+          <button class="btn btn-outline-success" @click="showExportModal = true; fetchExports()">
+            📥 Export CSV History
+          </button>
           <router-link to="/trekker/treks" class="btn btn-primary">
             🏔️ Explore Treks
           </router-link>
@@ -275,12 +278,99 @@
           </div>
         </div>
       </div>
+
+      <!-- Export History Modal -->
+      <div v-if="showExportModal" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+          <div class="modal-content shadow">
+            <div class="modal-header">
+              <h5 class="modal-title fw-bold">📥 Export Trekking History (CSV)</h5>
+              <button type="button" class="btn-close" @click="showExportModal = false"></button>
+            </div>
+            <div class="modal-body p-4">
+              <p class="text-muted small mb-3">
+                Download a complete spreadsheet record of all your expedition registrations, dates, locations, difficulty levels, and booking statuses. Exports are generated securely in the background.
+              </p>
+
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <button
+                  class="btn btn-primary btn-sm"
+                  @click="triggerExport"
+                  :disabled="exportTriggering"
+                >
+                  <span v-if="exportTriggering" class="spinner-border spinner-border-sm me-1"></span>
+                  {{ exportTriggering ? 'Queueing Export Job...' : '⚡ Generate New CSV Export' }}
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" @click="fetchExports" :disabled="loadingExports">
+                  🔄 Refresh Status
+                </button>
+              </div>
+
+              <div v-if="exportMessage" class="alert alert-info py-2 small mb-3">
+                {{ exportMessage }}
+              </div>
+
+              <!-- Export Jobs List -->
+              <h6 class="fw-bold mt-3 mb-2 small text-uppercase text-muted">Recent Export Requests</h6>
+              <div v-if="loadingExports" class="text-center py-3">
+                <div class="spinner-border spinner-border-sm text-primary"></div>
+              </div>
+              <div v-else-if="exportJobs.length === 0" class="text-center text-muted py-3 small bg-light rounded">
+                No CSV exports requested yet. Click "Generate New CSV Export" above.
+              </div>
+              <div v-else class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead class="table-light small">
+                    <tr>
+                      <th>Job ID</th>
+                      <th>Requested At</th>
+                      <th>Status</th>
+                      <th class="text-end">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="job in exportJobs" :key="job.id">
+                      <td>#{{ job.id }}</td>
+                      <td class="small">{{ formatDate(job.created_at) }}</td>
+                      <td>
+                        <span v-if="job.status === 'Completed'" class="badge bg-success">Completed</span>
+                        <span v-else-if="job.status === 'Processing'" class="badge bg-warning text-dark">
+                          <span class="spinner-border spinner-border-sm me-1" style="width: 0.7rem; height: 0.7rem;"></span>Processing...
+                        </span>
+                        <span v-else-if="job.status === 'Pending'" class="badge bg-secondary">Queued</span>
+                        <span v-else class="badge bg-danger">Failed</span>
+                        <small v-if="job.error_message" class="text-danger d-block mt-1">{{ job.error_message }}</small>
+                      </td>
+                      <td class="text-end">
+                        <button
+                          v-if="job.status === 'Completed'"
+                          class="btn btn-sm btn-outline-success"
+                          @click="downloadExport(job)"
+                        >
+                          ⬇️ Download CSV
+                        </button>
+                        <span v-else-if="job.status === 'Processing' || job.status === 'Pending'" class="text-muted small">
+                          Generating...
+                        </span>
+                        <span v-else class="text-muted small">-</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary btn-sm" @click="showExportModal = false">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import api from '../services/api'
 import TrekkerSidebar from '../components/TrekkerSidebar.vue'
 import BookingStatusBadge from '../components/BookingStatusBadge.vue'
@@ -294,6 +384,81 @@ const bookings = ref([])
 const currentStatus = ref('')
 const pagination = ref({ page: 1, pages: 1, total: 0, has_prev: false, has_next: false })
 const selectedBooking = ref(null)
+
+// CSV Export state
+const showExportModal = ref(false)
+const exportJobs = ref([])
+const loadingExports = ref(false)
+const exportTriggering = ref(false)
+const exportMessage = ref('')
+let pollInterval = null
+
+const fetchExports = async () => {
+  loadingExports.value = true
+  try {
+    const res = await api.get('/api/trekker/exports')
+    exportJobs.value = res.data?.data?.jobs || []
+  } catch (err) {
+    //
+  } finally {
+    loadingExports.value = false
+  }
+}
+
+const triggerExport = async () => {
+  exportTriggering.value = true
+  exportMessage.value = ''
+  try {
+    const res = await api.post('/api/trekker/exports')
+    exportMessage.value = 'CSV export job queued! It will be ready in a moment.'
+    await fetchExports()
+    startPolling()
+  } catch (err) {
+    exportMessage.value = err.response?.data?.message || 'Failed to queue export job.'
+  } finally {
+    exportTriggering.value = false
+  }
+}
+
+const startPolling = () => {
+  if (pollInterval) clearInterval(pollInterval)
+  pollInterval = setInterval(async () => {
+    try {
+      const res = await api.get('/api/trekker/exports')
+      exportJobs.value = res.data?.data?.jobs || []
+      const hasPending = exportJobs.value.some(j => j.status === 'Pending' || j.status === 'Processing')
+      if (!hasPending) {
+        clearInterval(pollInterval)
+        pollInterval = null
+      }
+    } catch {
+      clearInterval(pollInterval)
+      pollInterval = null
+    }
+  }, 2000)
+}
+
+const downloadExport = async (job) => {
+  try {
+    const res = await api.get(`/api/trekker/exports/${job.id}/download`, { responseType: 'blob' })
+    const url = window.URL.createObjectURL(new Blob([res.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', job.filename || `trekking_history_${job.id}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  } catch (err) {
+    alert('Failed to download export file.')
+  }
+}
+
+onUnmounted(() => {
+  if (pollInterval) {
+    clearInterval(pollInterval)
+    pollInterval = null
+  }
+})
 
 const confirmCancel = async (booking) => {
   const trekTitle = booking.trek_name || booking.trek?.trek_name || 'this expedition'

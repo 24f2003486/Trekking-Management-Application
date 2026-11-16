@@ -232,6 +232,97 @@
             </div>
           </div>
         </div>
+
+        <!-- Milestone 7: Monthly Activity Reports Section -->
+        <div class="card border-0 shadow-sm mb-4">
+          <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <h5 class="card-title fw-bold mb-0">📑 Executive Monthly Activity Reports</h5>
+              <p class="text-muted small mb-0">System-generated monthly audit summaries of completed treks, distinct participants, and popular routes.</p>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+              <input
+                type="month"
+                v-model="selectedMonth"
+                class="form-control form-control-sm"
+                style="max-width: 160px;"
+                title="Select Month (YYYY-MM)"
+              />
+              <button
+                class="btn btn-primary btn-sm"
+                @click="generateReport"
+                :disabled="generatingReport"
+              >
+                <span v-if="generatingReport" class="spinner-border spinner-border-sm me-1"></span>
+                {{ generatingReport ? 'Generating...' : '⚡ Generate Report' }}
+              </button>
+              <button
+                class="btn btn-outline-secondary btn-sm"
+                @click="fetchMonthlyReports"
+                :disabled="loadingMonthlyReports"
+              >
+                🔄 Refresh
+              </button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div v-if="reportSuccessMsg" class="alert alert-success m-3 py-2 small">
+              {{ reportSuccessMsg }}
+            </div>
+            <div v-if="loadingMonthlyReports" class="text-center py-4">
+              <div class="spinner-border spinner-border-sm text-primary"></div>
+              <p class="text-muted small mt-1">Loading report history...</p>
+            </div>
+            <div v-else-if="monthlyReports.length === 0" class="text-center text-muted py-4 small">
+              No monthly audit reports generated yet. Select a month and click "Generate Report".
+            </div>
+            <div v-else class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light small">
+                  <tr>
+                    <th class="ps-3">Report Month</th>
+                    <th>Status</th>
+                    <th>Treks Conducted</th>
+                    <th>Participants</th>
+                    <th>Total Bookings</th>
+                    <th>Generated Date</th>
+                    <th class="text-end pe-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in monthlyReports" :key="r.id">
+                    <td class="ps-3 fw-bold">{{ r.report_month }}</td>
+                    <td>
+                      <span v-if="r.status === 'Generated'" class="badge bg-success">Generated</span>
+                      <span v-else class="badge bg-danger">{{ r.status }}</span>
+                    </td>
+                    <td>{{ r.total_treks }}</td>
+                    <td>{{ r.total_participants }}</td>
+                    <td>{{ r.total_bookings }}</td>
+                    <td class="small text-muted">{{ formatReportDate(r.generated_at) }}</td>
+                    <td class="text-end pe-3">
+                      <button
+                        v-if="r.status === 'Generated'"
+                        class="btn btn-outline-primary btn-sm me-2"
+                        @click="viewReport(r.id)"
+                      >
+                        👁️ View Report
+                      </button>
+                      <button
+                        v-if="r.status === 'Generated'"
+                        class="btn btn-sm btn-success"
+                        @click="downloadReport(r.id, r.filename)"
+                      >
+                        ⬇️ Download
+                      </button>
+                      <span v-else class="text-muted small">-</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -247,6 +338,13 @@ const loading = ref(true)
 const error = ref('')
 const reports = ref({})
 
+// Milestone 7: Monthly Audit Reports
+const monthlyReports = ref([])
+const loadingMonthlyReports = ref(false)
+const generatingReport = ref(false)
+const reportSuccessMsg = ref('')
+const selectedMonth = ref('')
+
 const fetchReports = async () => {
   loading.value = true
   error.value = ''
@@ -257,6 +355,67 @@ const fetchReports = async () => {
     error.value = err.response?.data?.message || 'Failed to retrieve reports.'
   } finally {
     loading.value = false
+  }
+}
+
+const fetchMonthlyReports = async () => {
+  loadingMonthlyReports.value = true
+  try {
+    const res = await api.get('/api/admin/reports/monthly')
+    monthlyReports.value = res.data?.data?.reports || []
+  } catch (err) {
+    //
+  } finally {
+    loadingMonthlyReports.value = false
+  }
+}
+
+const generateReport = async () => {
+  generatingReport.value = true
+  reportSuccessMsg.value = ''
+  try {
+    const payload = {}
+    if (selectedMonth.value) {
+      payload.month = selectedMonth.value
+    }
+    const res = await api.post('/api/admin/reports/monthly/generate', payload)
+    reportSuccessMsg.value = res.data?.message || 'Report generation initiated successfully!'
+    setTimeout(fetchMonthlyReports, 1000)
+  } catch (err) {
+    error.value = err.response?.data?.message || 'Failed to trigger report generation.'
+  } finally {
+    generatingReport.value = false
+  }
+}
+
+const viewReport = (reportId) => {
+  window.open(`/api/admin/reports/monthly/${reportId}/download?download=false`, '_blank')
+}
+
+const downloadReport = async (reportId, filename) => {
+  try {
+    const res = await api.get(`/api/admin/reports/monthly/${reportId}/download?download=true`, {
+      responseType: 'blob'
+    })
+    const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/html' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', filename || `monthly_report_${reportId}.html`)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  } catch (err) {
+    alert('Failed to download report.')
+  }
+}
+
+const formatReportDate = (isoStr) => {
+  if (!isoStr) return '-'
+  try {
+    const d = new Date(isoStr)
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return isoStr
   }
 }
 
@@ -296,5 +455,6 @@ const getBookingStatusBadge = (status) => {
 
 onMounted(() => {
   fetchReports()
+  fetchMonthlyReports()
 })
 </script>

@@ -26,14 +26,14 @@ def create_app(config_name: str = None) -> Flask:
         config_name = os.environ.get("FLASK_CONFIG", "development")
 
     app = Flask(__name__, instance_relative_config=True)
-    
+
     # Load configuration
     cfg = config.get(config_name, config["default"])
     app.config.from_object(cfg)
-    
+
     # Ensure instance directory exists
     os.makedirs(app.instance_path, exist_ok=True)
-    
+
     # Initialize extensions
     db.init_app(app)
     jwt.init_app(app)
@@ -42,6 +42,14 @@ def create_app(config_name: str = None) -> Flask:
         resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", "*")}},
         supports_credentials=True
     )
+
+    # Initialize Celery
+    from backend.app.celery_app import celery_init_app
+    celery_init_app(app)
+
+    # Initialize Celery
+    from backend.app.celery_app import celery_init_app
+    celery_init_app(app)
     
     # Import models within app context so SQLAlchemy is aware of all models
     with app.app_context():
@@ -50,9 +58,13 @@ def create_app(config_name: str = None) -> Flask:
             Trek,
             Booking,
             StaffProfile,
-            TokenBlocklist
+            TokenBlocklist,
+            Notification,
+            ReminderLog,
+            MonthlyReport,
+            ExportJob,
         )
-    
+
     # Configure JWT token blocklist verification (SQLite backed)
     @jwt.token_in_blocklist_loader
     def check_if_token_revoked(jwt_header, jwt_payload: dict) -> bool:
@@ -101,6 +113,7 @@ def create_app(config_name: str = None) -> Flask:
         admin_reports_bp,
         staff_bp,
         trekker_bp,
+        notifications_bp,
     )
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
@@ -111,6 +124,7 @@ def create_app(config_name: str = None) -> Flask:
     app.register_blueprint(admin_reports_bp)
     app.register_blueprint(staff_bp)
     app.register_blueprint(trekker_bp)
+    app.register_blueprint(notifications_bp)
 
     # CLI command for programmatic database initialization
     @app.cli.command("init-db")

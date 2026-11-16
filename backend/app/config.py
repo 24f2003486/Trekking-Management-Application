@@ -37,6 +37,19 @@ class BaseConfig:
         "http://localhost:5173,http://127.0.0.1:5173"
     ).split(",")
 
+    # Celery & Redis Settings
+    REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", REDIS_URL)
+    CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", REDIS_URL)
+    CELERY_TIMEZONE = "UTC"
+    REMINDER_WINDOW_DAYS = int(os.environ.get("REMINDER_WINDOW_DAYS", 3))
+
+    # Private directories for exports and reports
+    EXPORTS_DIR = INSTANCE_DIR / "exports"
+    REPORTS_DIR = INSTANCE_DIR / "reports"
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 class DevelopmentConfig(BaseConfig):
     """Configuration for local development."""
@@ -55,6 +68,12 @@ class TestingConfig(BaseConfig):
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
     JWT_SECRET_KEY = "test-jwt-secret-key-mad2-tma-v2-32bytes-secure!"
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=30)
+    # Celery test configuration
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+    CELERY_BROKER_URL = "memory://"
+    CELERY_RESULT_BACKEND = "cache+memory://"
+
 
 
 class ProductionConfig(BaseConfig):

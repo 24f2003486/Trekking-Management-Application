@@ -1,13 +1,14 @@
 """Trekker role-protected routes and booking management."""
 from datetime import datetime, date
 import re
-from flask import Blueprint, request, g
+from flask import Blueprint, request, g, current_app, send_from_directory
 from sqlalchemy import or_, desc, asc
 from sqlalchemy.exc import IntegrityError
 from backend.app.extensions import db
 from backend.app.models.user import User
 from backend.app.models.trek import Trek
 from backend.app.models.booking import Booking
+from backend.app.models.export_job import ExportJob
 from backend.app.utils.decorators import role_required
 from backend.app.utils.responses import success_response, error_response
 
@@ -481,4 +482,97 @@ def cancel_booking(booking_id):
     return success_response(
         f"Booking #{booking.id} for trek '{trek.trek_name if trek else ''}' has been successfully cancelled.",
         data={"booking": serialized, **serialized}
+    )
+
+
+# =============================================================================
+# 9. Asynchronous CSV Export of Trekking History
+# =============================================================================
+@trekker_bp.route("/exports", methods=["POST"])
+@role_required("Trekker")
+def request_history_export():
+    """Trigger an asynchronous CSV export of the authenticated Trekker's booking history."""
+    user = g.current_user
+    # Security: Do not accept user_id from client request body. Identity is derived strictly from JWT.
+
+    job = ExportJob(user_id=user.id, status="Pending")
+    db.session.add(job)
+    db.session.commit()
+
+    # Enqueue Celery background task
+    from backend.app.tasks.exports import export_trekker_history_csv
+    export_trekker_history_csv.delay(job.id)
+
+    return success_response(
+        "Trekking history CSV export job queued successfully.",
+        data={"job": job.to_dict(), "job_id": job.id},
+        status_code=202
+    )
+
+
+@trekker_bp.route("/exports", methods=["GET"])
+@role_required("Trekker")
+def list_history_exports():
+    """List all export jobs belonging strictly to the authenticated Trekker."""
+    user = g.current_user
+    jobs = ExportJob.query.filter_by(user_id=user.id).order_by(ExportJob.created_at.desc()).all()
+    return success_response(
+        "Export jobs retrieved successfully.",
+        data={"jobs": [j.to_dict() for j in jobs]}
+    )
+
+
+@trekker_bp.route("/exports/<int:job_id>", methods=["GET"])
+@role_required("Trekker")
+def get_export_job_status(job_id: int):
+    """Get the status of a specific export job strictly owned by the authenticated Trekker."""
+    user = g.current_user
+    job = db.session.get(ExportJob, job_id)
+    if not job:
+        return error_response(f"Export job #{job_id} not found.", status_code=404)
+
+    # Strictly isolated: cannot inspect another user's export job
+    if job.user_id != user.id:
+        return error_response("You are not authorized to view this export job.", status_code=403)
+
+    return success_response(
+        f"Export job #{job_id} status retrieved.",
+        data={"job": job.to_dict()}
+    )
+
+
+@trekker_bp.route("/exports/<int:job_id>/download", methods=["GET"])
+@role_required("Trekker")
+def download_export_file(job_id: int):
+    """Securely download the exported CSV file, verifying user ownership and path traversal safety."""
+    user = g.current_user
+    job = db.session.get(ExportJob, job_id)
+    if not job:
+        return error_response(f"Export job #{job_id} not found.", status_code=404)
+
+    # Strictly isolated: cannot download another user's export file
+    if job.user_id != user.id:
+        return error_response("You are not authorized to download this export file.", status_code=403)
+
+    if job.status != "Completed":
+        return error_response(f"Export job #{job_id} is not yet completed (current status: {job.status}).", status_code=400)
+
+    if not job.filename:
+        return error_response("Export file is not available.", status_code=404)
+
+    # Verify filename does not attempt path traversal
+    if ".." in job.filename or "/" in job.filename or "\\" in job.filename:
+        return error_response("Invalid export filename.", status_code=400)
+
+    exports_dir = current_app.config["EXPORTS_DIR"]
+    file_path = exports_dir / job.filename
+    if not file_path.is_file():
+        return error_response("Export file was not found on server.", status_code=404)
+
+    return send_from_directory(
+        exports_dir,
+        job.filename,
+        as_attachment=True,
+        download_name=f"trekking_history_{user.id}_{job.id}.csv",
+        mimetype="text/csv"
     )

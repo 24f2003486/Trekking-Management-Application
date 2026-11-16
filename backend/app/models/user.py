@@ -8,12 +8,12 @@ from backend.app.extensions import db
 
 class User(db.Model):
     """User account model supporting Admin, Trek Staff, and Trekker roles."""
-    
+
     __tablename__ = "users"
-    
+
     ALLOWED_ROLES = {"Admin", "Trek Staff", "Trekker"}
     ALLOWED_STATUSES = {"Active", "Inactive", "Blacklisted"}
-    
+
     __table_args__ = (
         db.CheckConstraint(
             "role IN ('Admin', 'Trek Staff', 'Trekker')",
@@ -24,7 +24,7 @@ class User(db.Model):
             name="ck_users_status"
         ),
     )
-    
+
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     full_name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), nullable=False, unique=True, index=True)
@@ -40,7 +40,7 @@ class User(db.Model):
         default=datetime.utcnow,
         onupdate=datetime.utcnow
     )
-    
+
     # Relationships
     # One-to-One with StaffProfile (only for Trek Staff)
     staff_profile = db.relationship(
@@ -49,7 +49,7 @@ class User(db.Model):
         uselist=False,
         cascade="all, delete-orphan"
     )
-    
+
     # One-to-Many with Trek (as assigned trek staff)
     assigned_treks = db.relationship(
         "Trek",
@@ -57,26 +57,40 @@ class User(db.Model):
         foreign_keys="Trek.assigned_staff_id",
         lazy="dynamic"
     )
-    
+
     # One-to-Many with Booking (do not cascade delete bookings to preserve history)
     bookings = db.relationship(
         "Booking",
         back_populates="user",
         lazy="dynamic"
     )
-    
+
+    # Milestone 7: Notifications and Export Jobs
+    notifications = db.relationship(
+        "Notification",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="dynamic"
+    )
+    export_jobs = db.relationship(
+        "ExportJob",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="dynamic"
+    )
+
     def set_password(self, password: str) -> None:
         """Hash and store the given password."""
         if not password:
             raise ValueError("Password cannot be empty.")
         self.password_hash = generate_password_hash(password)
-        
+
     def check_password(self, password: str) -> bool:
         """Verify the given password against the stored hash."""
         if not self.password_hash or not password:
             return False
         return check_password_hash(self.password_hash, password)
-        
+
     @validates("role")
     def validate_role(self, key, value):
         """Ensure role is within the allowed set."""
@@ -146,29 +160,29 @@ def validate_user_role_transition(mapper, connection, target):
     """Ensure that non-Trek-Staff users cannot retain staff profiles or assigned treks."""
     from sqlalchemy.orm import object_session
     session = object_session(target)
-    
+
     if target.role != "Trek Staff":
         from backend.app.models.staff_profile import StaffProfile
         from backend.app.models.trek import Trek
-        
+
         # Check for existing staff profile
         profile = target.staff_profile
         if profile is None and session is not None and target.id is not None:
             profile = session.query(StaffProfile).filter_by(user_id=target.id).first()
-            
+
         if profile is not None:
             raise ValueError(
                 f"Cannot assign role '{target.role}' to user '{target.email}' "
                 "while an associated StaffProfile exists. Delete or dissociate the staff profile first."
             )
-            
+
         # Check for assigned treks
         assigned_count = 0
         if session is not None and target.id is not None:
             assigned_count = session.query(Trek).filter_by(assigned_staff_id=target.id).count()
         elif target.assigned_treks is not None:
             assigned_count = target.assigned_treks.count()
-            
+
         if assigned_count > 0:
             raise ValueError(
                 f"Cannot assign role '{target.role}' to user '{target.email}' "
